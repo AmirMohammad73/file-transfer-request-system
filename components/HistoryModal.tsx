@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Request, FileDetail } from '../types';
+import { Request } from '../types';
 import { STATUS_STYLES } from '../constants';
 import ApprovalStatus from './ApprovalStatus';
 import { requestsAPI } from '../utils/api';
@@ -109,10 +109,12 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                   </tr>
                 </thead>
                 <tbody>
-                  {requests.map(request => (
+                  {requests.map((request, index) => (
                     <React.Fragment key={request.id}>
                       <tr 
-                        className="border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors"
+                        className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${
+                          index % 2 === 0 ? 'bg-blue-50' : 'bg-green-50'
+                        }`}
                         onClick={() => toggleRow(request.id)}
                       >
                         <td className="p-3 text-gray-800 font-semibold">#{request.id.split('-')[1]}</td>
@@ -125,7 +127,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                         </td>
                         <td className="p-3">
                           <button className="text-[#3498db] hover:text-[#2980b9] font-semibold">
-                            {expandedRow === request.id ? 'بستن ▼' : 'باز کردن ▶'}
+                            {expandedRow === request.id ? 'کمتر ▼' : 'بیشتر ▶'}
                           </button>
                         </td>
                       </tr>
@@ -134,9 +136,12 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                           <td colSpan={5} className="p-4 bg-gray-50">
                             <div className="space-y-4">
                               <div className="space-y-3">
-                                {request.files.map((file, index) => (
-                                  <div key={file.id} className="bg-white p-4 rounded border border-gray-200">
-                                    <div className="font-semibold text-gray-700 mb-3 text-lg">فایل {index + 1}</div>
+                                {request.files.map((file, index) => {
+                                  const fileBgClass = index % 2 === 0
+                                    ? 'bg-blue-50 border-blue-200'
+                                    : 'bg-green-50 border-green-200';
+                                  return (
+                                  <div key={file.id} className={`${fileBgClass} p-4 rounded border`}>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                                       <div><strong className="text-gray-600">نام فایل:</strong> {file.fileName}</div>
                                       <div className="lg:col-span-2"><strong className="text-gray-600">محتوای فایل:</strong> {file.fileContent}</div>
@@ -184,7 +189,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                       <div className="lg:col-span-3"><strong className="text-gray-600">فیلدهای فایل:</strong> {file.fileFields || '—'}</div>
                                     </div>
                                   </div>
-                                ))}
+                                )})}
                               </div>
                               <ApprovalStatus request={request} />
                             </div>

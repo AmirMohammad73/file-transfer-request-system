@@ -67,11 +67,13 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                     <div key={file.id} className="bg-gray-50 border border-gray-200 rounded-lg p-5 relative">
                          <div className="absolute -top-3 right-5 bg-[#3498db] text-white px-3 py-1 text-sm font-bold rounded">مشخصات فایل</div>
                          <div className="flex justify-between items-center mt-3 mb-4">
-                             <div className="w-10 h-10 bg-[#3498db] text-white rounded-full flex items-center justify-center font-bold text-lg">{index + 1}</div>
+                             <div className="text-sm font-semibold text-gray-500">مشخصات فایل</div>
+                             {/*
                              <button onClick={() => removeFile(file.id)} className="flex items-center gap-2 px-3 py-1 bg-[#e74c3c] text-white rounded-md hover:bg-[#c0392b] transition-colors cursor-pointer">
                                 <Trash2Icon className="w-4 h-4" />
                                 <span>حذف</span>
                              </button>
+                             */}
                          </div>
                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div>
@@ -103,12 +105,14 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                 ))}
             </div>
 
+            {/*
             <div className="flex justify-center my-6">
                 <button onClick={addFile} className="flex items-center gap-2 px-6 py-3 bg-[#2ecc71] text-white font-semibold rounded-md hover:bg-[#27ae60] transition-colors transform hover:-translate-y-0.5 cursor-pointer">
                     <PlusCircleIcon className="w-6 h-6" />
                     <span>افزودن رکورد جدید</span>
                 </button>
             </div>
+            */}
             
             <div className="flex justify-center mt-8">
                  <button onClick={handleSubmit} className="flex items-center gap-3 px-10 py-4 bg-[#3498db] text-white font-bold text-lg rounded-md hover:bg-[#2980b9] transition-colors transform hover:-translate-y-0.5 cursor-pointer">
