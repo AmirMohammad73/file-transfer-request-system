@@ -173,7 +173,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
               >
                 <option value="">همه</option>
                 <option value="FILE_TRANSFER">فایل</option>
-                <option value="VDI">VDI</option>
+                <option value="VDI_OPEN">VDI</option>
                 <option value="BACKUP">Backup</option>
               </select>
             </div>

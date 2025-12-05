@@ -16,7 +16,7 @@ export enum Status {
 export enum RequestType {
   FILE_TRANSFER = 'FILE_TRANSFER',  // فرم درخواست فایل از/به سرور
   BACKUP = 'BACKUP',                // فرم درخواست تهیه Backup
-  VDI = 'VDI',                      // فرم درخواست باز کردن VDI
+  VDI = 'VDI_OPEN',                      // فرم درخواست باز کردن VDI
 }
 
 export interface FileDetail {
@@ -65,7 +65,7 @@ export interface Request {
   requestType: RequestType;    // نوع درخواست
   files?: FileDetail[];        // برای FILE_TRANSFER
   backups?: BackupDetail[];    // برای BACKUP
-  vdis?: VDIDetail[];          // برای VDI
+  vdis?: VDIDetail[];          // برای VDI_OPEN
   status: Status;
   approvalHistory: Approval[];
   currentApprover: Role | null;

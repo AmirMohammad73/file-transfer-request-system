@@ -43,8 +43,6 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         r.department,
         r.request_type,
         r.files,
-        r.backups,
-        r.vdis,
         r.status,
         r.current_approver,
         r.approval_history,
@@ -146,8 +144,6 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         r.department,
         r.request_type,
         r.files,
-        r.backups,
-        r.vdis,
         r.status,
         r.current_approver,
         r.approval_history,
@@ -169,32 +165,33 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         ? JSON.parse(row.files) 
         : (Array.isArray(row.files) ? row.files : null);
       
-      const backupsData = typeof row.backups === 'string' 
-        ? JSON.parse(row.backups) 
-        : (Array.isArray(row.backups) ? row.backups : null);
-      
-      const vdisData = typeof row.vdis === 'string' 
-        ? JSON.parse(row.vdis) 
-        : (Array.isArray(row.vdis) ? row.vdis : null);
-      
       const approvalHistoryData = typeof row.approval_history === 'string'
         ? JSON.parse(row.approval_history)
         : (Array.isArray(row.approval_history) ? row.approval_history : []);
 
-      return {
+      // بر اساس نوع درخواست، داده‌ها را به صورت مناسب برمی‌گردانیم
+      const result: any = {
         id: row.id,
         requesterName: row.requester_name,
         department: row.department,
         requestType: row.request_type,
-        files: filesData,
-        backups: backupsData,
-        vdis: vdisData,
         status: row.status,
         currentApprover: row.current_approver,
         approvalHistory: approvalHistoryData,
         createdAt: row.created_at,
         requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
       };
+
+      // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
+      if (row.request_type === 'FILE_TRANSFER') {
+        result.files = filesData;
+      } else if (row.request_type === 'BACKUP') {
+        result.backups = filesData;
+      } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
+        result.vdis = filesData;
+      }
+
+      return result;
     });
 
     res.json(requests);
@@ -216,16 +213,24 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
     }
 
-    if (type === 'FILE_TRANSFER' && (!files || !Array.isArray(files) || files.length === 0)) {
-      return res.status(400).json({ error: 'حداقل یک فایل الزامی است' });
-    }
-
-    if (type === 'BACKUP' && (!backups || !Array.isArray(backups) || backups.length === 0)) {
-      return res.status(400).json({ error: 'حداقل یک مشخصات backup الزامی است' });
-    }
-
-    if (type === 'VDI' && (!vdis || !Array.isArray(vdis) || vdis.length === 0)) {
-      return res.status(400).json({ error: 'حداقل یک مشخصات VDI الزامی است' });
+    // تعیین داده‌های مورد نیاز بر اساس نوع درخواست
+    let dataToStore: any[] | null = null;
+    
+    if (type === 'FILE_TRANSFER') {
+      if (!files || !Array.isArray(files) || files.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک فایل الزامی است' });
+      }
+      dataToStore = files;
+    } else if (type === 'BACKUP') {
+      if (!backups || !Array.isArray(backups) || backups.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات backup الزامی است' });
+      }
+      dataToStore = backups;
+    } else if (type === 'VDI' || type === 'VDI_OPEN') {
+      if (!vdis || !Array.isArray(vdis) || vdis.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات VDI الزامی است' });
+      }
+      dataToStore = vdis;
     }
 
     const userResult = await pool.query(
@@ -249,9 +254,9 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     const insertResult = await pool.query(
       `INSERT INTO requests (
-        id, requester_id, requester_name, department, request_type, files, backups, vdis,
+        id, requester_id, requester_name, department, request_type, files,
         status, current_approver, approval_history
-      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11::jsonb)
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb)
       RETURNING *`,
       [
         requestId,
@@ -259,9 +264,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         user.name,
         user.department,
         type,
-        type === 'FILE_TRANSFER' ? JSON.stringify(files) : null,
-        type === 'BACKUP' ? JSON.stringify(backups) : null,
-        type === 'VDI' ? JSON.stringify(vdis) : null,
+        JSON.stringify(dataToStore),
         'PENDING',
         firstApprover,
         '[]',
@@ -271,8 +274,6 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     const row = insertResult.rows[0];
     
     const filesData = row.files ? (typeof row.files === 'string' ? JSON.parse(row.files) : row.files) : null;
-    const backupsData = row.backups ? (typeof row.backups === 'string' ? JSON.parse(row.backups) : row.backups) : null;
-    const vdisData = row.vdis ? (typeof row.vdis === 'string' ? JSON.parse(row.vdis) : row.vdis) : null;
     const approvalHistoryData = typeof row.approval_history === 'string'
       ? JSON.parse(row.approval_history)
       : (Array.isArray(row.approval_history) ? row.approval_history : []);
@@ -284,20 +285,26 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     const requesterGroupIds = requesterUserResult.rows[0]?.group_ids || [];
     const requesterGroupId = requesterGroupIds.length > 0 ? requesterGroupIds[0] : null;
 
-    const request = {
+    const request: any = {
       id: row.id,
       requesterName: row.requester_name,
       department: row.department,
       requestType: row.request_type,
-      files: filesData,
-      backups: backupsData,
-      vdis: vdisData,
       status: row.status,
       currentApprover: row.current_approver,
       approvalHistory: approvalHistoryData,
       createdAt: row.created_at,
       requesterGroupId: requesterGroupId,
     };
+
+    // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
+    if (row.request_type === 'FILE_TRANSFER') {
+      request.files = filesData;
+    } else if (row.request_type === 'BACKUP') {
+      request.backups = filesData;
+    } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
+      request.vdis = filesData;
+    }
 
     res.status(201).json(request);
   } catch (error: any) {
@@ -396,25 +403,31 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
     const updatedRequest = updateResult.rows[0];
     
     const filesData = updatedRequest.files ? (typeof updatedRequest.files === 'string' ? JSON.parse(updatedRequest.files) : updatedRequest.files) : null;
-    const backupsData = updatedRequest.backups ? (typeof updatedRequest.backups === 'string' ? JSON.parse(updatedRequest.backups) : updatedRequest.backups) : null;
-    const vdisData = updatedRequest.vdis ? (typeof updatedRequest.vdis === 'string' ? JSON.parse(updatedRequest.vdis) : updatedRequest.vdis) : null;
     const approvalHistoryData = typeof updatedRequest.approval_history === 'string'
       ? JSON.parse(updatedRequest.approval_history)
       : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
 
-    res.json({
+    const result: any = {
       id: updatedRequest.id,
       requesterName: updatedRequest.requester_name,
       department: updatedRequest.department,
       requestType: updatedRequest.request_type,
-      files: filesData,
-      backups: backupsData,
-      vdis: vdisData,
       status: updatedRequest.status,
       currentApprover: updatedRequest.current_approver,
       approvalHistory: approvalHistoryData,
       createdAt: updatedRequest.created_at,
-    });
+    };
+
+    // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
+    if (updatedRequest.request_type === 'FILE_TRANSFER') {
+      result.files = filesData;
+    } else if (updatedRequest.request_type === 'BACKUP') {
+      result.backups = filesData;
+    } else if (updatedRequest.request_type === 'VDI' || updatedRequest.request_type === 'VDI_OPEN') {
+      result.vdis = filesData;
+    }
+
+    res.json(result);
   } catch (error: any) {
     console.error('Approve request error:', error);
     res.status(500).json({ error: 'خطا در تایید درخواست' });
@@ -498,25 +511,31 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
     const updatedRequest = updateResult.rows[0];
     
     const filesData = updatedRequest.files ? (typeof updatedRequest.files === 'string' ? JSON.parse(updatedRequest.files) : updatedRequest.files) : null;
-    const backupsData = updatedRequest.backups ? (typeof updatedRequest.backups === 'string' ? JSON.parse(updatedRequest.backups) : updatedRequest.backups) : null;
-    const vdisData = updatedRequest.vdis ? (typeof updatedRequest.vdis === 'string' ? JSON.parse(updatedRequest.vdis) : updatedRequest.vdis) : null;
     const approvalHistoryData = typeof updatedRequest.approval_history === 'string'
       ? JSON.parse(updatedRequest.approval_history)
       : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
 
-    res.json({
+    const result: any = {
       id: updatedRequest.id,
       requesterName: updatedRequest.requester_name,
       department: updatedRequest.department,
       requestType: updatedRequest.request_type,
-      files: filesData,
-      backups: backupsData,
-      vdis: vdisData,
       status: updatedRequest.status,
       currentApprover: updatedRequest.current_approver,
       approvalHistory: approvalHistoryData,
       createdAt: updatedRequest.created_at,
-    });
+    };
+
+    // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
+    if (updatedRequest.request_type === 'FILE_TRANSFER') {
+      result.files = filesData;
+    } else if (updatedRequest.request_type === 'BACKUP') {
+      result.backups = filesData;
+    } else if (updatedRequest.request_type === 'VDI' || updatedRequest.request_type === 'VDI_OPEN') {
+      result.vdis = filesData;
+    }
+
+    res.json(result);
   } catch (error: any) {
     console.error('Reject request error:', error);
     res.status(500).json({ error: 'خطا در رد درخواست' });
