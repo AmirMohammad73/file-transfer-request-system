@@ -11,3 +11,19 @@ body {
   font-family: var(--font-family-vazirmatn);
 }
 
+/* استایل برای تقویم شمسی */
+.rmdp-calendar {
+  background-color: azure !important;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+
+.rmdp-wrapper {
+  background-color: azure !important;
+}
+
+.rmdp-container {
+  background-color: azure !important;
+}
+

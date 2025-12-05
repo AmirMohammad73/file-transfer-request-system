@@ -4,12 +4,25 @@ import { authenticateToken } from '../middleware/auth';
 
 const router = express.Router();
 
+// Helper function to determine approval hierarchy based on request type
+function getApprovalHierarchy(requestType: string): string[] {
+  if (requestType === 'BACKUP') {
+    // For BACKUP: REQUESTER -> GROUP_LEAD -> NETWORK_HEAD -> NETWORK_ADMIN
+    return ['GROUP_LEAD', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
+  } else if (requestType === 'VDI') {
+    // For VDI: REQUESTER -> DEPUTY -> NETWORK_HEAD -> NETWORK_ADMIN
+    return ['DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
+  } else {
+    // For FILE_TRANSFER: REQUESTER -> GROUP_LEAD -> DEPUTY -> NETWORK_HEAD -> NETWORK_ADMIN
+    return ['GROUP_LEAD', 'DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
+  }
+}
+
 // Get all requests (filtered based on user role)
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
 
-    // Get current user with group_ids
     const userResult = await pool.query(
       'SELECT role, name, group_ids FROM req_users WHERE id = $1',
       [userId]
@@ -28,7 +41,10 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         r.requester_id,
         r.requester_name,
         r.department,
+        r.request_type,
         r.files,
+        r.backups,
+        r.vdis,
         r.status,
         r.current_approver,
         r.approval_history,
@@ -41,21 +57,15 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     const params: any[] = [];
     let paramCount = 0;
 
-    // Filter based on user role
     if (user.role === 'REQUESTER') {
-      // Requesters see only their own requests
       query += ` WHERE r.requester_id = $${++paramCount}`;
       params.push(userId);
     } else {
-      // Approvers see requests pending for their role
       query += ` WHERE r.status = 'PENDING' AND r.current_approver = $${++paramCount}`;
       params.push(user.role);
       
-      // Filter by group_ids
-      // If user has group 0, they can see all requests
       if (!userGroupIds.includes(0)) {
         if (userGroupIds.length > 0) {
-          // Check if requester's group_ids overlap with approver's group_ids
           query += ` AND (
             u.group_ids && $${++paramCount}::integer[] OR 
             u.group_ids IS NULL OR 
@@ -63,7 +73,6 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
           )`;
           params.push(userGroupIds);
         } else {
-          // User has no groups, can't see any requests
           query += ` AND 1=0`;
         }
       }
@@ -74,10 +83,17 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
 
     const requests = result.rows.map((row) => {
-      // Parse JSONB fields if they are strings
       const filesData = typeof row.files === 'string' 
         ? JSON.parse(row.files) 
-        : (Array.isArray(row.files) ? row.files : []);
+        : (Array.isArray(row.files) ? row.files : null);
+      
+      const backupsData = typeof row.backups === 'string' 
+        ? JSON.parse(row.backups) 
+        : (Array.isArray(row.backups) ? row.backups : null);
+      
+      const vdisData = typeof row.vdis === 'string' 
+        ? JSON.parse(row.vdis) 
+        : (Array.isArray(row.vdis) ? row.vdis : null);
       
       const approvalHistoryData = typeof row.approval_history === 'string'
         ? JSON.parse(row.approval_history)
@@ -87,7 +103,10 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         id: row.id,
         requesterName: row.requester_name,
         department: row.department,
+        requestType: row.request_type,
         files: filesData,
+        backups: backupsData,
+        vdis: vdisData,
         status: row.status,
         currentApprover: row.current_approver,
         approvalHistory: approvalHistoryData,
@@ -99,17 +118,15 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     res.json(requests);
   } catch (error: any) {
     console.error('Get requests error:', error);
-    console.error('Error details:', error);
     res.status(500).json({ error: 'خطا در دریافت درخواست‌ها' });
   }
 });
 
-// Get request history (all requests user is involved in)
+// Get request history
 router.get('/history', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
 
-    // Get current user
     const userResult = await pool.query(
       'SELECT role, name FROM req_users WHERE id = $1',
       [userId]
@@ -121,14 +138,16 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
 
     const user = userResult.rows[0];
 
-    // Get requests where user is requester or in approval history
     const result = await pool.query(
       `SELECT 
         r.id,
         r.requester_id,
         r.requester_name,
         r.department,
+        r.request_type,
         r.files,
+        r.backups,
+        r.vdis,
         r.status,
         r.current_approver,
         r.approval_history,
@@ -146,10 +165,17 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     );
 
     const requests = result.rows.map((row) => {
-      // Parse JSONB fields if they are strings
       const filesData = typeof row.files === 'string' 
         ? JSON.parse(row.files) 
-        : (Array.isArray(row.files) ? row.files : []);
+        : (Array.isArray(row.files) ? row.files : null);
+      
+      const backupsData = typeof row.backups === 'string' 
+        ? JSON.parse(row.backups) 
+        : (Array.isArray(row.backups) ? row.backups : null);
+      
+      const vdisData = typeof row.vdis === 'string' 
+        ? JSON.parse(row.vdis) 
+        : (Array.isArray(row.vdis) ? row.vdis : null);
       
       const approvalHistoryData = typeof row.approval_history === 'string'
         ? JSON.parse(row.approval_history)
@@ -159,7 +185,10 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         id: row.id,
         requesterName: row.requester_name,
         department: row.department,
+        requestType: row.request_type,
         files: filesData,
+        backups: backupsData,
+        vdis: vdisData,
         status: row.status,
         currentApprover: row.current_approver,
         approvalHistory: approvalHistoryData,
@@ -171,7 +200,6 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     res.json(requests);
   } catch (error: any) {
     console.error('Get history error:', error);
-    console.error('Error details:', error);
     res.status(500).json({ error: 'خطا در دریافت تاریخچه' });
   }
 });
@@ -180,15 +208,26 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { files } = req.body;
+    const { type, files, backups, vdis } = req.body;
 
-    console.log('Received request to create:', { userId, filesCount: files?.length });
+    console.log('Received request to create:', { userId, type, filesCount: files?.length, backupsCount: backups?.length, vdisCount: vdis?.length });
 
-    if (!files || !Array.isArray(files) || files.length === 0) {
+    if (!type) {
+      return res.status(400).json({ error: 'نوع درخواست الزامی است' });
+    }
+
+    if (type === 'FILE_TRANSFER' && (!files || !Array.isArray(files) || files.length === 0)) {
       return res.status(400).json({ error: 'حداقل یک فایل الزامی است' });
     }
 
-    // Get current user with group_id
+    if (type === 'BACKUP' && (!backups || !Array.isArray(backups) || backups.length === 0)) {
+      return res.status(400).json({ error: 'حداقل یک مشخصات backup الزامی است' });
+    }
+
+    if (type === 'VDI' && (!vdis || !Array.isArray(vdis) || vdis.length === 0)) {
+      return res.status(400).json({ error: 'حداقل یک مشخصات VDI الزامی است' });
+    }
+
     const userResult = await pool.query(
       'SELECT name, department, group_ids FROM req_users WHERE id = $1',
       [userId]
@@ -200,43 +239,44 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     const user = userResult.rows[0];
 
-    // Generate request ID
     const countResult = await pool.query('SELECT COUNT(*) as count FROM requests');
     const count = parseInt(countResult.rows[0].count) + 1;
     const requestId = `req-${String(count).padStart(3, '0')}`;
 
-    // Insert new request - pg automatically converts objects to JSONB
-    // Note: requester_group_id is not stored, we'll get it from JOIN when needed
+    // Determine first approver based on request type
+    const hierarchy = getApprovalHierarchy(type);
+    const firstApprover = hierarchy[0];
+
     const insertResult = await pool.query(
       `INSERT INTO requests (
-        id, requester_id, requester_name, department, files, 
+        id, requester_id, requester_name, department, request_type, files, backups, vdis,
         status, current_approver, approval_history
-      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::jsonb)
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11::jsonb)
       RETURNING *`,
       [
         requestId,
         userId,
         user.name,
         user.department,
-        JSON.stringify(files), // Convert to JSON string for JSONB
+        type,
+        type === 'FILE_TRANSFER' ? JSON.stringify(files) : null,
+        type === 'BACKUP' ? JSON.stringify(backups) : null,
+        type === 'VDI' ? JSON.stringify(vdis) : null,
         'PENDING',
-        'GROUP_LEAD', // First approver in hierarchy
-        '[]', // Empty JSON array as string
+        firstApprover,
+        '[]',
       ]
     );
 
     const row = insertResult.rows[0];
     
-    // Parse JSONB fields if they are strings
-    const filesData = typeof row.files === 'string' 
-      ? JSON.parse(row.files) 
-      : (Array.isArray(row.files) ? row.files : []);
-    
+    const filesData = row.files ? (typeof row.files === 'string' ? JSON.parse(row.files) : row.files) : null;
+    const backupsData = row.backups ? (typeof row.backups === 'string' ? JSON.parse(row.backups) : row.backups) : null;
+    const vdisData = row.vdis ? (typeof row.vdis === 'string' ? JSON.parse(row.vdis) : row.vdis) : null;
     const approvalHistoryData = typeof row.approval_history === 'string'
       ? JSON.parse(row.approval_history)
       : (Array.isArray(row.approval_history) ? row.approval_history : []);
 
-    // Get requester's group_ids from user table
     const requesterUserResult = await pool.query(
       'SELECT group_ids FROM req_users WHERE id = $1',
       [row.requester_id]
@@ -248,7 +288,10 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       id: row.id,
       requesterName: row.requester_name,
       department: row.department,
+      requestType: row.request_type,
       files: filesData,
+      backups: backupsData,
+      vdis: vdisData,
       status: row.status,
       currentApprover: row.current_approver,
       approvalHistory: approvalHistoryData,
@@ -259,12 +302,6 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     res.status(201).json(request);
   } catch (error: any) {
     console.error('Create request error:', error);
-    console.error('Error details:', {
-      message: error.message,
-      code: error.code,
-      detail: error.detail,
-      hint: error.hint,
-    });
     res.status(500).json({ 
       error: 'خطا در ایجاد درخواست',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -278,7 +315,6 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
     const userId = (req as any).userId;
     const requestId = req.params.id;
 
-    // Get current user with group_ids
     const userResult = await pool.query(
       'SELECT role, name, group_ids FROM req_users WHERE id = $1',
       [userId]
@@ -291,7 +327,6 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
     const user = userResult.rows[0];
     const userGroupIds = user.group_ids || [];
 
-    // Get request with requester's group_ids
     const requestResult = await pool.query(
       `SELECT r.*, u.group_ids as requester_group_ids
        FROM requests r
@@ -310,11 +345,9 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       return res.status(400).json({ error: 'این درخواست قابل تایید نیست' });
     }
 
-    // Check group permissions (if user doesn't have group 0, check group overlap)
     if (!userGroupIds.includes(0)) {
       const requesterGroupIds = request.requester_group_ids || [];
       if (requesterGroupIds.length > 0) {
-        // Check if there's any overlap between user's groups and requester's groups
         const hasOverlap = requesterGroupIds.some((gid: number) => userGroupIds.includes(gid));
         if (!hasOverlap) {
           return res.status(403).json({ error: 'شما اجازه تایید این درخواست را ندارید' });
@@ -322,7 +355,6 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       }
     }
 
-    // Parse approval_history if it's a string (JSONB from database)
     let approvalHistory: any[] = [];
     if (request.approval_history) {
       if (typeof request.approval_history === 'string') {
@@ -332,20 +364,19 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       }
     }
 
-    const isLastApprover = user.role === 'NETWORK_ADMIN';
+    // Get approval hierarchy for this request type
+    const hierarchy = getApprovalHierarchy(request.request_type);
+    const currentIndex = hierarchy.indexOf(user.role);
+    const isLast = currentIndex === hierarchy.length - 1;
+
     const newApproval = {
       approverRole: user.role,
       approverName: user.name,
-      status: isLastApprover ? 'COMPLETED' : 'APPROVED',
+      status: isLast ? 'COMPLETED' : 'APPROVED',
       date: new Date().toISOString(),
     };
 
     approvalHistory.push(newApproval);
-
-    // Determine next approver or complete
-    const roleHierarchy = ['GROUP_LEAD', 'DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
-    const currentIndex = roleHierarchy.indexOf(user.role);
-    const isLast = currentIndex === roleHierarchy.length - 1;
 
     const updateResult = await pool.query(
       `UPDATE requests 
@@ -356,19 +387,17 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
        RETURNING *`,
       [
         isLast ? 'COMPLETED' : 'PENDING',
-        isLast ? null : roleHierarchy[currentIndex + 1],
-        JSON.stringify(approvalHistory), // Convert to JSON string for JSONB
+        isLast ? null : hierarchy[currentIndex + 1],
+        JSON.stringify(approvalHistory),
         requestId,
       ]
     );
 
     const updatedRequest = updateResult.rows[0];
     
-    // Parse JSONB fields if they are strings
-    const filesData = typeof updatedRequest.files === 'string' 
-      ? JSON.parse(updatedRequest.files) 
-      : (Array.isArray(updatedRequest.files) ? updatedRequest.files : []);
-    
+    const filesData = updatedRequest.files ? (typeof updatedRequest.files === 'string' ? JSON.parse(updatedRequest.files) : updatedRequest.files) : null;
+    const backupsData = updatedRequest.backups ? (typeof updatedRequest.backups === 'string' ? JSON.parse(updatedRequest.backups) : updatedRequest.backups) : null;
+    const vdisData = updatedRequest.vdis ? (typeof updatedRequest.vdis === 'string' ? JSON.parse(updatedRequest.vdis) : updatedRequest.vdis) : null;
     const approvalHistoryData = typeof updatedRequest.approval_history === 'string'
       ? JSON.parse(updatedRequest.approval_history)
       : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
@@ -377,7 +406,10 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       id: updatedRequest.id,
       requesterName: updatedRequest.requester_name,
       department: updatedRequest.department,
+      requestType: updatedRequest.request_type,
       files: filesData,
+      backups: backupsData,
+      vdis: vdisData,
       status: updatedRequest.status,
       currentApprover: updatedRequest.current_approver,
       approvalHistory: approvalHistoryData,
@@ -395,7 +427,6 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
     const userId = (req as any).userId;
     const requestId = req.params.id;
 
-    // Get current user with group_ids
     const userResult = await pool.query(
       'SELECT role, name, group_ids FROM req_users WHERE id = $1',
       [userId]
@@ -408,7 +439,6 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
     const user = userResult.rows[0];
     const userGroupIds = user.group_ids || [];
 
-    // Get request with requester's group_ids
     const requestResult = await pool.query(
       `SELECT r.*, u.group_ids as requester_group_ids
        FROM requests r
@@ -427,11 +457,9 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       return res.status(400).json({ error: 'این درخواست قابل رد نیست' });
     }
 
-    // Check group permissions (if user doesn't have group 0, check group overlap)
     if (!userGroupIds.includes(0)) {
       const requesterGroupIds = request.requester_group_ids || [];
       if (requesterGroupIds.length > 0) {
-        // Check if there's any overlap between user's groups and requester's groups
         const hasOverlap = requesterGroupIds.some((gid: number) => userGroupIds.includes(gid));
         if (!hasOverlap) {
           return res.status(403).json({ error: 'شما اجازه رد این درخواست را ندارید' });
@@ -439,7 +467,6 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       }
     }
 
-    // Parse approval_history if it's a string (JSONB from database)
     let approvalHistory: any[] = [];
     if (request.approval_history) {
       if (typeof request.approval_history === 'string') {
@@ -465,16 +492,14 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
            approval_history = $3::jsonb
        WHERE id = $4
        RETURNING *`,
-      ['REJECTED', null, JSON.stringify(approvalHistory), requestId] // Convert to JSON string for JSONB
+      ['REJECTED', null, JSON.stringify(approvalHistory), requestId]
     );
 
     const updatedRequest = updateResult.rows[0];
     
-    // Parse JSONB fields if they are strings
-    const filesData = typeof updatedRequest.files === 'string' 
-      ? JSON.parse(updatedRequest.files) 
-      : (Array.isArray(updatedRequest.files) ? updatedRequest.files : []);
-    
+    const filesData = updatedRequest.files ? (typeof updatedRequest.files === 'string' ? JSON.parse(updatedRequest.files) : updatedRequest.files) : null;
+    const backupsData = updatedRequest.backups ? (typeof updatedRequest.backups === 'string' ? JSON.parse(updatedRequest.backups) : updatedRequest.backups) : null;
+    const vdisData = updatedRequest.vdis ? (typeof updatedRequest.vdis === 'string' ? JSON.parse(updatedRequest.vdis) : updatedRequest.vdis) : null;
     const approvalHistoryData = typeof updatedRequest.approval_history === 'string'
       ? JSON.parse(updatedRequest.approval_history)
       : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
@@ -483,7 +508,10 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       id: updatedRequest.id,
       requesterName: updatedRequest.requester_name,
       department: updatedRequest.department,
+      requestType: updatedRequest.request_type,
       files: filesData,
+      backups: backupsData,
+      vdis: vdisData,
       status: updatedRequest.status,
       currentApprover: updatedRequest.current_approver,
       approvalHistory: approvalHistoryData,
@@ -507,7 +535,6 @@ router.put('/:id/files/:fileId/letter-number', authenticateToken, async (req: Re
       return res.status(400).json({ error: 'شماره نامه الزامی است' });
     }
 
-    // Get request
     const requestResult = await pool.query(
       'SELECT * FROM requests WHERE id = $1',
       [requestId]
@@ -519,12 +546,10 @@ router.put('/:id/files/:fileId/letter-number', authenticateToken, async (req: Re
 
     const request = requestResult.rows[0];
 
-    // Check if user is the requester
     if (request.requester_id !== userId) {
       return res.status(403).json({ error: 'شما فقط می‌توانید شماره نامه درخواست‌های خود را ویرایش کنید' });
     }
 
-    // Parse files
     let files: any[] = [];
     if (typeof request.files === 'string') {
       files = JSON.parse(request.files);
@@ -532,21 +557,17 @@ router.put('/:id/files/:fileId/letter-number', authenticateToken, async (req: Re
       files = request.files;
     }
 
-    // Find and update the file
     const fileIndex = files.findIndex((f: any) => f.id === fileId);
     if (fileIndex === -1) {
       return res.status(404).json({ error: 'فایل یافت نشد' });
     }
 
-    // Check if letterNumber already exists
     if (files[fileIndex].letterNumber && files[fileIndex].letterNumber.trim() !== '') {
       return res.status(400).json({ error: 'شماره نامه قبلاً وارد شده است و قابل ویرایش نیست' });
     }
 
-    // Update letter number
     files[fileIndex].letterNumber = letterNumber.trim();
 
-    // Update request
     const updateResult = await pool.query(
       `UPDATE requests 
        SET files = $1::jsonb
@@ -571,4 +592,3 @@ router.put('/:id/files/:fileId/letter-number', authenticateToken, async (req: Re
 });
 
 export default router;
-

@@ -1,16 +1,14 @@
-import { User, Request, FileDetail } from '../types';
+import { User, Request, FileDetail, BackupDetail, VDIDetail, RequestType } from '../types';
 
-// Use proxy in development, full URL in production
 const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:5000/api');
 
-// Helper function to make API calls with credentials
 async function apiCall<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
-    credentials: 'include', // Include cookies
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -25,7 +23,6 @@ async function apiCall<T>(
   return response.json();
 }
 
-// Auth API
 export const authAPI = {
   login: async (username: string, password: string): Promise<User> => {
     return apiCall<User>('/auth/login', {
@@ -65,7 +62,6 @@ export const authAPI = {
   },
 };
 
-// Requests API
 export const requestsAPI = {
   getAll: async (): Promise<Request[]> => {
     return apiCall<Request[]>('/requests');
@@ -75,10 +71,10 @@ export const requestsAPI = {
     return apiCall<Request[]>('/requests/history');
   },
 
-  create: async (files: FileDetail[]): Promise<Request> => {
+  create: async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[] }): Promise<Request> => {
     return apiCall<Request>('/requests', {
       method: 'POST',
-      body: JSON.stringify({ files }),
+      body: JSON.stringify(data),
     });
   },
 
@@ -101,4 +97,3 @@ export const requestsAPI = {
     });
   },
 };
-

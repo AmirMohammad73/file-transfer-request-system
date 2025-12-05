@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { Request, Role, Status } from '../types';
+import { Request, Role, Status, RequestType } from '../types';
 import { ROLE_HIERARCHY, ROLE_NAMES } from '../constants';
 import { CheckIcon } from './icons';
 
@@ -9,7 +8,12 @@ interface ApprovalStatusProps {
 }
 
 const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
-  const allSteps = [Role.REQUESTER, ...ROLE_HIERARCHY];
+  // Determine approval steps based on request type
+  const approvalSteps = request.requestType === RequestType.BACKUP
+    ? [Role.REQUESTER, Role.GROUP_LEAD, Role.NETWORK_HEAD, Role.NETWORK_ADMIN]
+    : request.requestType === RequestType.VDI
+    ? [Role.REQUESTER, Role.DEPUTY, Role.NETWORK_HEAD, Role.NETWORK_ADMIN]
+    : [Role.REQUESTER, ...ROLE_HIERARCHY];
 
   const getStatusForStep = (step: Role) => {
     if (step === Role.REQUESTER) {
@@ -39,8 +43,8 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
   return (
     <div className="mt-6 pt-5 border-t border-dashed border-gray-300">
       <div className="text-center font-bold mb-4 text-[#2c3e50] text-lg">مراحل تأیید</div>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {allSteps.map(step => {
+      <div className={`grid ${approvalSteps.length === 4 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-5'} gap-4`}>
+        {approvalSteps.map(step => {
           const { status, name, date } = getStatusForStep(step);
           
           let bgColor = 'bg-gray-200';
@@ -64,7 +68,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
               <div className="text-sm font-semibold mb-2 text-[#2c3e50] text-center">{ROLE_NAMES[step]}</div>
               <div className={`w-10 h-10 border-2 ${borderColor} ${bgColor} rounded-full flex items-center justify-center`}>
                 {status === 'checked' && <CheckIcon className={`w-6 h-6 ${iconColor}`} />}
-                 {status === 'rejected' && <span className={`text-xl ${iconColor}`}>×</span>}
+                {status === 'rejected' && <span className={`text-xl ${iconColor}`}>×</span>}
               </div>
               <div className="text-center text-xs text-gray-600 mt-2 leading-tight">
                 <div>{name}</div>

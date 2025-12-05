@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { Request, Role, User } from '../types';
+import { Request, Role, User, RequestType } from '../types';
 import ApprovalStatus from './ApprovalStatus';
 import { CheckCircleIcon, XCircleIcon } from './icons';
 import ConfirmDialog from './ConfirmDialog';
@@ -34,6 +33,9 @@ const RequestItem: React.FC<RequestItemProps> = ({ request, currentUser, onAppro
     onReject(request.id);
   };
 
+  const isFileTransfer = request.requestType === RequestType.FILE_TRANSFER;
+  const isBackup = request.requestType === RequestType.BACKUP;
+
   return (
     <>
       <ConfirmDialog
@@ -56,50 +58,72 @@ const RequestItem: React.FC<RequestItemProps> = ({ request, currentUser, onAppro
         onCancel={() => setShowRejectDialog(false)}
         type="reject"
       />
-    <div className="bg-white border border-gray-200 rounded-lg p-5 mb-5 shadow-sm transition hover:shadow-md">
-      <div className="flex justify-between items-center pb-4 border-b border-dashed border-gray-300">
-        <div>
-           <h3 className="font-bold text-lg text-[#2c3e50]">درخواست #{request.id.split('-')[1]} از {request.requesterName}</h3>
-           <p className="text-sm text-gray-500">تاریخ ایجاد: {new Date(request.createdAt).toLocaleDateString('fa-IR')}</p>
-        </div>
-        <div className="flex gap-3">
-          {currentUser.role !== Role.NETWORK_ADMIN && (
+      <div className="bg-white border border-gray-200 rounded-lg p-5 mb-5 shadow-sm transition hover:shadow-md">
+        <div className="flex justify-between items-center pb-4 border-b border-dashed border-gray-300">
+          <div>
+            <h3 className="font-bold text-lg text-[#2c3e50]">
+              درخواست #{request.id.split('-')[1]} از {request.requesterName}
+              <span className={`mr-2 text-sm px-2 py-1 rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                {isFileTransfer ? ' فایل از/به سرور' : ' تهیه Backup'}
+              </span>
+            </h3>
+            <p className="text-sm text-gray-500">تاریخ ایجاد: {new Date(request.createdAt).toLocaleDateString('fa-IR')}</p>
+          </div>
+          <div className="flex gap-3">
+            {currentUser.role !== Role.NETWORK_ADMIN && (
+              <button
+                onClick={handleRejectClick}
+                className="flex items-center gap-2 px-4 py-2 bg-[#e74c3c] text-white rounded-md hover:bg-[#c0392b] transition-colors cursor-pointer"
+              >
+                <XCircleIcon className="w-5 h-5" />
+                <span>رد درخواست</span>
+              </button>
+            )}
             <button
-              onClick={handleRejectClick}
-              className="flex items-center gap-2 px-4 py-2 bg-[#e74c3c] text-white rounded-md hover:bg-[#c0392b] transition-colors cursor-pointer"
+              onClick={handleApproveClick}
+              className="flex items-center gap-2 px-4 py-2 bg-[#2ecc71] text-white rounded-md hover:bg-[#27ae60] transition-colors cursor-pointer"
             >
-              <XCircleIcon className="w-5 h-5" />
-              <span>رد درخواست</span>
+              <CheckCircleIcon className="w-5 h-5" />
+              <span>{currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل' : 'تایید درخواست'}</span>
             </button>
-          )}
-          <button
-            onClick={handleApproveClick}
-            className="flex items-center gap-2 px-4 py-2 bg-[#2ecc71] text-white rounded-md hover:bg-[#27ae60] transition-colors cursor-pointer"
-          >
-            <CheckCircleIcon className="w-5 h-5" />
-            <span>{currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل' : 'تایید درخواست'}</span>
-          </button>
+          </div>
         </div>
-      </div>
-      
-      <div className="mt-4 space-y-4">
-        {request.files.map((file, index) => (
-          <div key={file.id} className="p-3 bg-gray-50 rounded-md border border-gray-100">
-             <div className="font-bold text-gray-700 mb-2">فایل {index + 1}</div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+        
+        <div className="mt-4 space-y-4">
+          {isFileTransfer && request.files && request.files.map((file, index) => (
+            <div key={file.id} className="p-3 bg-blue-50 rounded-md border border-blue-100">
+              <div className="font-bold text-gray-700 mb-2">فایل {index + 1}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-sm">
                 <div><strong className="text-gray-500">نام فایل:</strong> {file.fileName}</div>
                 <div className="lg:col-span-2"><strong className="text-gray-500">محتوای فایل:</strong> {file.fileContent}</div>
+                <div><strong className="text-gray-500">آدرس IP مبدا:</strong> {file.sourceIP}</div>
+                <div className="lg:col-span-2"><strong className="text-gray-500">مسیر فایل مبدا:</strong> {file.sourceFilePath}</div>
+                <div><strong className="text-gray-500">آدرس IP مقصد:</strong> {file.destinationIP}</div>
+                <div className="lg:col-span-2"><strong className="text-gray-500">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
                 <div><strong className="text-gray-500">فرمت فایل:</strong> {file.fileFormat}</div>
                 <div className="lg:col-span-2"><strong className="text-gray-500">شخص/سازمان گیرنده:</strong> {file.recipient}</div>
-                <div><strong className="text-gray-500">شماره نامه ارسال فایل:</strong> {file.letterNumber}</div>
-                <div className="lg:col-span-3"><strong className="text-gray-500">فیلدهای فایل:</strong> <span className="text-gray-700">{file.fileFields || '—'}</span></div>
-             </div>
-          </div>
-        ))}
-      </div>
+                <div><strong className="text-gray-500">شماره نامه:</strong> {file.letterNumber || '—'}</div>
+                <div className="lg:col-span-2"><strong className="text-gray-500">فیلدهای فایل:</strong> <span className="text-gray-700">{file.fileFields || '—'}</span></div>
+              </div>
+            </div>
+          ))}
 
-      <ApprovalStatus request={request} />
-    </div>
+          {isBackup && request.backups && request.backups.map((backup, index) => (
+            <div key={backup.id} className="p-3 bg-green-50 rounded-md border border-green-100">
+              <div className="font-bold text-gray-700 mb-2">Backup {index + 1}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <div><strong className="text-gray-500">IP سرور:</strong> {backup.serverIP}</div>
+                <div><strong className="text-gray-500">نحوه بکاپ گیری:</strong> {backup.backupMethod === 'FULL' ? 'کامل' : 'تغییرات'}</div>
+                <div className="md:col-span-2"><strong className="text-gray-500">مسیر نگهداری:</strong> {backup.storagePath || '—'}</div>
+                <div><strong className="text-gray-500">زمان بندی:</strong> {backup.schedule}</div>
+                <div><strong className="text-gray-500">مدت زمان نگهداری:</strong> {backup.retentionPeriod}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <ApprovalStatus request={request} />
+      </div>
     </>
   );
 };

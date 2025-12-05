@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Request, Role, Status, FileDetail } from '../types';
+import { Request, Role, Status, FileDetail, BackupDetail, VDIDetail, RequestType } from '../types';
 import { ROLE_HIERARCHY } from '../constants';
 import RequestForm from '../components/RequestForm';
 import RequestList from '../components/RequestList';
@@ -23,7 +22,6 @@ const MainApp: React.FC = () => {
     
     if (!currentUser) return null;
 
-    // Fetch requests on mount and when user changes
     useEffect(() => {
         const fetchRequests = async () => {
             try {
@@ -39,17 +37,15 @@ const MainApp: React.FC = () => {
 
         fetchRequests();
 
-        // Poll for new requests every 300 seconds (only for approvers)
         if (currentUser.role !== Role.REQUESTER) {
             const interval = setInterval(() => {
                 fetchRequests();
-            }, 300000); // 300 seconds
+            }, 300000);
 
             return () => clearInterval(interval);
         }
     }, [currentUser]);
 
-    // Fetch history requests
     useEffect(() => {
         const fetchHistory = async () => {
             try {
@@ -72,15 +68,12 @@ const MainApp: React.FC = () => {
         return historyRequests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }, [historyRequests]);
 
-    // ارسال Notification هنگام دریافت درخواست جدید
     useEffect(() => {
-        // فقط برای کاربرانی که می‌توانند درخواست‌ها را بررسی کنند
         if (currentUser.role === Role.REQUESTER) return;
 
         const currentPendingCount = pendingRequests.length;
         const currentPendingIds = new Set(pendingRequests.map(req => req.id));
 
-        // در اولین mount، فقط refs را به‌روزرسانی کن و Notification ارسال نکن
         if (isFirstMountRef.current) {
             previousPendingCountRef.current = currentPendingCount;
             previousPendingIdsRef.current = currentPendingIds;
@@ -88,18 +81,26 @@ const MainApp: React.FC = () => {
             return;
         }
 
-        // اگر تعداد درخواست‌های pending افزایش یافته است
         if (currentPendingCount > previousPendingCountRef.current) {
             const newRequests = pendingRequests.filter(req => !previousPendingIdsRef.current.has(req.id));
             
             if (newRequests.length > 0) {
-                const request = newRequests[0]; // اولین درخواست جدید
+                const request = newRequests[0];
                 const requesterName = request.requesterName;
-                const filesCount = request.files.length;
+                const itemsCount = request.requestType === RequestType.FILE_TRANSFER 
+                    ? request.files?.length || 0 
+                    : request.requestType === RequestType.VDI
+                    ? request.vdis?.length || 0
+                    : request.backups?.length || 0;
+                const itemsType = request.requestType === RequestType.FILE_TRANSFER 
+                    ? 'فایل' 
+                    : request.requestType === RequestType.VDI
+                    ? 'درخواست VDI'
+                    : 'درخواست backup';
                 
                 showNotification({
                     title: 'درخواست جدید برای بررسی',
-                    body: `یک درخواست جدید از ${requesterName} با ${filesCount} فایل برای بررسی شما ارسال شده است.`,
+                    body: `یک درخواست جدید از ${requesterName} با ${itemsCount} ${itemsType} برای بررسی شما ارسال شده است.`,
                     tag: `request-${request.id}`,
                 }).catch(error => {
                     console.error('خطا در نمایش Notification:', error);
@@ -107,14 +108,13 @@ const MainApp: React.FC = () => {
             }
         }
 
-        // به‌روزرسانی refs
         previousPendingCountRef.current = currentPendingCount;
         previousPendingIdsRef.current = currentPendingIds;
     }, [pendingRequests, currentUser.role, showNotification]);
 
-    const handleCreateRequest = async (files: FileDetail[]) => {
+    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[] }) => {
         try {
-            const newRequest = await requestsAPI.create(files);
+            const newRequest = await requestsAPI.create(data);
             setRequests(prev => [newRequest, ...prev]);
             setHistoryRequests(prev => [newRequest, ...prev]);
             alert('درخواست شما با موفقیت ثبت و برای تایید ارسال شد.');

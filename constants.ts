@@ -37,7 +37,7 @@ export const INITIAL_REQUESTS: Request[] = [
         requesterName: 'محمد رضایی',
         department: 'واحد فناوری اطلاعات',
         files: [
-            { id: 'file-1', fileName: 'گزارش عملکرد ماهانه', fileContent: 'گزارش عملکرد واحد فناوری اطلاعات برای ماه گذشته', fileFormat: 'PDF', recipient: 'معاونت فناوری اطلاعات', letterNumber: '1234/99/01', fileFields: 'محرمانه - نیاز به تایید مدیریت' }
+            { id: 'file-1', fileName: 'گزارش عملکرد ماهانه', fileContent: 'گزارش عملکرد واحد فناوری اطلاعات برای ماه گذشته', fileFormat: 'PDF', recipient: 'معاونت فناوری اطلاعات', letterNumber: '1234/99/01', fileFields: 'محرمانه - نیاز به تایید مدیریت', sourceServerIP: '192.168.1.10', sourceFilePath: '/var/www/files/report.pdf', destinationServerIP: '192.168.1.20', destinationFilePath: '/var/www/files/report.pdf' }
         ],
         status: Status.PENDING,
         currentApprover: Role.DEPUTY,
@@ -51,7 +51,7 @@ export const INITIAL_REQUESTS: Request[] = [
         requesterName: 'سارا حسینی',
         department: 'واحد مالی',
         files: [
-            { id: 'file-2', fileName: 'صورت حساب سه‌ماهه', fileContent: 'صورت حساب مالی سه‌ماهه اول سال', fileFormat: 'XLSX', recipient: 'مدیریت مالی', letterNumber: '5678/99/02', fileFields: 'عمومی' }
+            { id: 'file-2', fileName: 'صورت حساب سه‌ماهه', fileContent: 'صورت حساب مالی سه‌ماهه اول سال', fileFormat: 'XLSX', recipient: 'مدیریت مالی', letterNumber: '5678/99/02', fileFields: 'عمومی', sourceServerIP: '192.168.1.11', sourceFilePath: '/var/www/files/account.xlsx', destinationServerIP: '192.168.1.21', destinationFilePath: '/var/www/files/account.xlsx' }
         ],
         status: Status.PENDING,
         currentApprover: Role.GROUP_LEAD,
@@ -63,7 +63,7 @@ export const INITIAL_REQUESTS: Request[] = [
         requesterName: 'محمد رضایی',
         department: 'واحد فناوری اطلاعات',
         files: [
-            { id: 'file-3', fileName: 'پروتکل امنیتی', fileContent: 'پروتکل امنیتی شبکه داخلی', fileFormat: 'DOCX', recipient: 'بخش امنیت', letterNumber: '9012/99/03', fileFields: 'محرمانه' }
+            { id: 'file-3', fileName: 'پروتکل امنیتی', fileContent: 'پروتکل امنیتی شبکه داخلی', fileFormat: 'DOCX', recipient: 'بخش امنیت', letterNumber: '9012/99/03', fileFields: 'محرمانه', sourceServerIP: '192.168.1.12', sourceFilePath: '/var/www/files/security.docx', destinationServerIP: '192.168.1.22', destinationFilePath: '/var/www/files/security.docx' }
         ],
         status: Status.REJECTED,
         currentApprover: null,
@@ -77,7 +77,7 @@ export const INITIAL_REQUESTS: Request[] = [
         requesterName: 'محمد رضایی',
         department: 'واحد فناوری اطلاعات',
         files: [
-            { id: 'file-4', fileName: 'برنامه توسعه', fileContent: 'برنامه توسعه سیستم جدید', fileFormat: 'PDF', recipient: 'معاونت برنامه‌ریزی', letterNumber: '3456/99/04', fileFields: 'عمومی - تایید شده' }
+            { id: 'file-4', fileName: 'برنامه توسعه', fileContent: 'برنامه توسعه سیستم جدید', fileFormat: 'PDF', recipient: 'معاونت برنامه‌ریزی', letterNumber: '3456/99/04', fileFields: 'عمومی - تایید شده', sourceServerIP: '192.168.1.13', sourceFilePath: '/var/www/files/plan.pdf', destinationServerIP: '192.168.1.23', destinationFilePath: '/var/www/files/plan.pdf' }
         ],
         status: Status.COMPLETED,
         currentApprover: null,
