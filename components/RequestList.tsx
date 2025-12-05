@@ -119,7 +119,11 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                           {new Date(request.createdAt).toLocaleDateString('fa-IR')}
                         </div>
                       </div>
-                      <button className="text-[#3498db] hover:text-[#2980b9] font-semibold px-4 py-2 rounded-md hover:bg-blue-50 transition-colors">
+                      <button 
+                        className="text-[#3498db] hover:text-[#2980b9] font-semibold px-4 py-2 rounded-md hover:bg-blue-50 transition-all focus:outline-none focus:ring-2 focus:ring-[#3498db] focus:ring-offset-2"
+                        aria-label={isExpanded ? 'بستن جزئیات' : 'نمایش جزئیات'}
+                        aria-expanded={isExpanded}
+                      >
                         {isExpanded ? 'بستن ▼' : 'بیشتر ▶'}
                       </button>
                     </div>
@@ -137,7 +141,8 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                                 e.stopPropagation();
                                 handleRejectClick(request.id);
                               }}
-                              className="flex items-center gap-2 px-4 py-2 bg-[#e74c3c] text-white rounded-md hover:bg-[#c0392b] transition-colors cursor-pointer"
+                              className="flex items-center gap-2 px-4 py-2 bg-[#e74c3c] text-white rounded-md hover:bg-[#c0392b] transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 cursor-pointer font-medium shadow-sm hover:shadow-md"
+                              aria-label="رد درخواست"
                             >
                               <XCircleIcon className="w-5 h-5" />
                               <span>رد درخواست</span>
@@ -148,7 +153,8 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                               e.stopPropagation();
                               handleApproveClick(request.id);
                             }}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#2ecc71] text-white rounded-md hover:bg-[#27ae60] transition-colors cursor-pointer"
+                            className="flex items-center gap-2 px-4 py-2 bg-[#2ecc71] text-white rounded-md hover:bg-[#27ae60] transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 cursor-pointer font-medium shadow-sm hover:shadow-md"
+                            aria-label={currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل درخواست' : 'تایید درخواست'}
                           >
                             <CheckCircleIcon className="w-5 h-5" />
                             <span>{currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل' : 'تایید درخواست'}</span>
@@ -212,8 +218,9 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
             })}
           </div>
         ) : (
-          <div className="text-center py-10 px-6 bg-gray-50 rounded-lg">
-            <p className="text-gray-600">در حال حاضر هیچ درخواستی برای بررسی شما وجود ندارد.</p>
+          <div className="text-center py-16 px-6 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg border-2 border-dashed border-gray-300">
+            <div className="text-6xl mb-4">📭</div>
+            <p className="text-gray-600 font-medium text-lg">در حال حاضر هیچ درخواستی برای بررسی شما وجود ندارد.</p>
           </div>
         )}
       </div>

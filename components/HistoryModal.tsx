@@ -5,6 +5,7 @@ import ApprovalStatus from './ApprovalStatus';
 import { requestsAPI } from '../utils/api';
 import { useAuth } from '../auth/AuthContext';
 import PersianDatePicker from './PersianDatePicker';
+import { useToastContext } from './ToastContainer';
 
 interface HistoryModalProps {
   isOpen: boolean;
@@ -119,9 +120,11 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     setLetterNumberValue(currentValue || '');
   };
 
+  const { showToast } = useToastContext();
+
   const handleSaveLetterNumber = async (requestId: string, fileId: string) => {
     if (!letterNumberValue.trim()) {
-      alert('لطفاً شماره نامه را وارد کنید');
+      showToast('لطفاً شماره نامه را وارد کنید', 'warning');
       return;
     }
 
@@ -134,8 +137,9 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
       ));
       setEditingLetterNumber(null);
       setLetterNumberValue('');
+      showToast('شماره نامه با موفقیت به‌روزرسانی شد', 'success');
     } catch (error: any) {
-      alert(error.message || 'خطا در به‌روزرسانی شماره نامه');
+      showToast(error.message || 'خطا در به‌روزرسانی شماره نامه', 'error');
     }
   };
 
@@ -153,11 +157,26 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
   const hasActiveFilters = filterRequestType || filterIP || filterRequesterName || filterDateFrom || filterDateTo;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="bg-[#3498db] text-white p-4 rounded-t-lg flex justify-between items-center">
-          <h2 className="text-xl font-bold">تاریخچه درخواست‌ها</h2>
-          <button onClick={onClose} className="text-2xl cursor-pointer hover:opacity-80">&times;</button>
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="history-modal-title"
+    >
+      <div 
+        className="bg-white rounded-lg shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col animate-slide-down"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="bg-gradient-to-r from-[#3498db] to-[#2980b9] text-white p-4 rounded-t-lg flex justify-between items-center">
+          <h2 id="history-modal-title" className="text-xl font-bold">تاریخچه درخواست‌ها</h2>
+          <button 
+            onClick={onClose} 
+            className="text-2xl cursor-pointer hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#3498db] rounded"
+            aria-label="بستن"
+          >
+            &times;
+          </button>
         </div>
 
         {/* Filters Section */}
@@ -243,13 +262,19 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
           </div>
         </div>
 
-        <div className="p-6 overflow-y-auto">
+        <div className="p-6 overflow-y-auto flex-1">
           {loading ? (
-            <p className="text-center text-gray-500 py-10">در حال بارگذاری...</p>
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="spinner mb-4"></div>
+              <p className="text-gray-500 font-medium">در حال بارگذاری...</p>
+            </div>
           ) : filteredRequests.length === 0 ? (
-            <p className="text-center text-gray-500 py-10">
-              {hasActiveFilters ? 'هیچ رکوردی با فیلترهای اعمال شده یافت نشد.' : 'هیچ رکوردی در تاریخچه شما یافت نشد.'}
-            </p>
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="text-6xl mb-4">📋</div>
+              <p className="text-gray-500 font-medium text-lg">
+                {hasActiveFilters ? 'هیچ رکوردی با فیلترهای اعمال شده یافت نشد.' : 'هیچ رکوردی در تاریخچه شما یافت نشد.'}
+              </p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
@@ -294,7 +319,11 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                           </span>
                         </td>
                         <td className="p-3">
-                          <button className="text-[#3498db] hover:text-[#2980b9] font-semibold">
+                          <button 
+                            className="text-[#3498db] hover:text-[#2980b9] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#3498db] focus:ring-offset-2 rounded px-2 py-1"
+                            aria-label={expandedRow === request.id ? 'بستن جزئیات' : 'نمایش جزئیات'}
+                            aria-expanded={expandedRow === request.id}
+                          >
                             {expandedRow === request.id ? 'کمتر ▼' : 'بیشتر ▶'}
                           </button>
                         </td>
@@ -417,8 +446,14 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
             </div>
           )}
         </div>
-        <div className="p-4 border-t bg-gray-50 rounded-b-lg text-left">
-          <button onClick={onClose} className="bg-gray-500 text-white px-6 py-2 rounded-md hover:bg-gray-600 transition cursor-pointer">بستن</button>
+        <div className="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end">
+          <button 
+            onClick={onClose} 
+            className="bg-gray-500 text-white px-6 py-2 rounded-md hover:bg-gray-600 transition-all focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 cursor-pointer font-medium"
+            aria-label="بستن"
+          >
+            بستن
+          </button>
         </div>
       </div>
     </div>

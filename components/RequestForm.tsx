@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileDetail, BackupDetail, VDIDetail, User, RequestType } from '../types';
 import { PlusCircleIcon, SendIcon, Trash2Icon } from './icons';
+import { useToastContext } from './ToastContainer';
 
 interface RequestFormProps {
     currentUser: User;
@@ -8,7 +9,9 @@ interface RequestFormProps {
 }
 
 const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
+    const { showToast } = useToastContext();
     const [requestType, setRequestType] = useState<RequestType>(RequestType.FILE_TRANSFER);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     
     // State for File Transfer form
     const [files, setFiles] = useState<FileDetail[]>([
@@ -82,8 +85,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
     const removeFile = (id: string) => {
         if (files.length > 1) {
             setFiles(files.filter(file => file.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
         } else {
-            alert('حداقل باید یک رکورد وجود داشته باشد.');
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
         }
     };
 
@@ -97,8 +101,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
     const removeBackup = (id: string) => {
         if (backups.length > 1) {
             setBackups(backups.filter(backup => backup.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
         } else {
-            alert('حداقل باید یک رکورد وجود داشته باشد.');
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
         }
     };
 
@@ -112,72 +117,100 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
     const removeVdi = (id: string) => {
         if (vdis.length > 1) {
             setVdis(vdis.filter(vdi => vdi.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
         } else {
-            alert('حداقل باید یک رکورد وجود داشته باشد.');
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
         }
     };
     
-    const handleSubmit = () => {
-        if (requestType === RequestType.FILE_TRANSFER) {
-            // Validation for File Transfer
-            for (const file of files) {
-                // Check required fields (all except letterNumber)
-                if (!file.fileName || !file.fileContent || !file.sourceIP || !file.sourceFilePath || 
-                    !file.destinationIP || !file.destinationFilePath || !file.fileFormat || 
-                    !file.recipient || !file.fileFields) {
-                    alert('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (فقط شماره نامه اختیاری است)');
-                    return;
-                }
-                
-                // Validate IP addresses
-                if (!validateIP(file.sourceIP)) {
-                    alert(`آدرس IP مبدا نامعتبر است: ${file.sourceIP}\nلطفاً یک آدرس IP معتبر وارد کنید (مثال: 192.168.1.100)`);
-                    return;
-                }
-                
-                if (!validateIP(file.destinationIP)) {
-                    alert(`آدرس IP مقصد نامعتبر است: ${file.destinationIP}\nلطفاً یک آدرس IP معتبر وارد کنید (مثال: 192.168.1.100)`);
-                    return;
-                }
-            }
-            onSubmit({ type: RequestType.FILE_TRANSFER, files });
-        } else if (requestType === RequestType.BACKUP) {
-            // Validation for Backup
-            for (const backup of backups) {
-                if (!backup.serverIP || !backup.backupMethod || !backup.schedule || !backup.retentionPeriod) {
-                    alert('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (مسیر نگهداری اختیاری است)');
-                    return;
-                }
-            }
-            onSubmit({ type: RequestType.BACKUP, backups });
-        } else if (requestType === RequestType.VDI) {
-            // Validation for VDI
-            for (const vdi of vdis) {
-                if (!vdi.serverOrSystemName) {
-                    alert('لطفاً فیلد "نام سرور/ سامانه" را پر کنید.');
-                    return;
-                }
-            }
-            onSubmit({ type: RequestType.VDI, vdis });
-        }
+    const handleSubmit = async () => {
+        setIsSubmitting(true);
         
-        // Reset form
-        setFiles([{ id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }]);
-        setBackups([{ id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }]);
-        setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }]);
+        try {
+            if (requestType === RequestType.FILE_TRANSFER) {
+                // Validation for File Transfer
+                for (const file of files) {
+                    // Check required fields (all except letterNumber)
+                    if (!file.fileName || !file.fileContent || !file.sourceIP || !file.sourceFilePath || 
+                        !file.destinationIP || !file.destinationFilePath || !file.fileFormat || 
+                        !file.recipient || !file.fileFields) {
+                        showToast('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (فقط شماره نامه اختیاری است)', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    
+                    // Validate IP addresses
+                    if (!validateIP(file.sourceIP)) {
+                        showToast(`آدرس IP مبدا نامعتبر است: ${file.sourceIP}. لطفاً یک آدرس IP معتبر وارد کنید (مثال: 192.168.1.100)`, 'error');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    
+                    if (!validateIP(file.destinationIP)) {
+                        showToast(`آدرس IP مقصد نامعتبر است: ${file.destinationIP}. لطفاً یک آدرس IP معتبر وارد کنید (مثال: 192.168.1.100)`, 'error');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.FILE_TRANSFER, files });
+            } else if (requestType === RequestType.BACKUP) {
+                // Validation for Backup
+                for (const backup of backups) {
+                    if (!backup.serverIP || !backup.backupMethod || !backup.schedule || !backup.retentionPeriod) {
+                        showToast('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (مسیر نگهداری اختیاری است)', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.BACKUP, backups });
+            } else if (requestType === RequestType.VDI) {
+                // Validation for VDI
+                for (const vdi of vdis) {
+                    if (!vdi.serverOrSystemName) {
+                        showToast('لطفاً فیلد "نام سرور/ سامانه" را پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.VDI, vdis });
+            }
+            
+            showToast('درخواست با موفقیت ارسال شد', 'success');
+            
+            // Reset form
+            setFiles([{ id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }]);
+            setBackups([{ id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }]);
+            setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }]);
+        } catch (error) {
+            showToast('خطا در ارسال درخواست. لطفاً دوباره تلاش کنید.', 'error');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
         <div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-5 mb-6">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-5 mb-6 shadow-sm">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label className="font-semibold text-gray-700 block mb-1">نام واحد مربوطه</label>
-                        <input type="text" value={currentUser.department} disabled className="w-full p-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700" />
+                        <label className="font-semibold text-gray-700 block mb-2 text-sm">نام واحد مربوطه</label>
+                        <input 
+                            type="text" 
+                            value={currentUser.department} 
+                            disabled 
+                            className="w-full p-2.5 border border-gray-300 rounded-md bg-gray-100 text-gray-700 cursor-not-allowed" 
+                            aria-label="نام واحد مربوطه"
+                        />
                     </div>
                     <div>
-                        <label className="font-semibold text-gray-700 block mb-1">نام و نام خانوادگی کارشناس</label>
-                        <input type="text" value={currentUser.name} disabled className="w-full p-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700" />
+                        <label className="font-semibold text-gray-700 block mb-2 text-sm">نام و نام خانوادگی کارشناس</label>
+                        <input 
+                            type="text" 
+                            value={currentUser.name} 
+                            disabled 
+                            className="w-full p-2.5 border border-gray-300 rounded-md bg-gray-100 text-gray-700 cursor-not-allowed" 
+                            aria-label="نام و نام خانوادگی کارشناس"
+                        />
                     </div>
                 </div>
             </div>
@@ -200,10 +233,23 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
             {requestType === RequestType.FILE_TRANSFER && (
                 <div id="records-container" className="space-y-5">
                     {files.map((file, index) => (
-                        <div key={file.id} className="bg-gray-50 border border-gray-200 rounded-lg p-5 relative">
-                            <div className="absolute -top-3 right-5 bg-[#3498db] text-white px-3 py-1 text-sm font-bold rounded">مشخصات فایل</div>
+                        <div key={file.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-[#3498db] text-white px-3 py-1 text-sm font-bold rounded shadow-md">مشخصات فایل</div>
                             <div className="flex justify-between items-center mt-3 mb-4">
-                                <div className="text-sm font-semibold text-gray-500">مشخصات فایل</div>
+                                <div className="text-sm font-semibold text-gray-500">مشخصات فایل {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {files.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeFile(file.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                            aria-label={`حذف رکورد ${index + 1}`}
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
@@ -214,8 +260,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         type="text" 
                                         value={file.fileName} 
                                         onChange={e => handleFileChange(index, 'fileName', e.target.value)} 
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
+                                        className="w-full p-2.5 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db] transition-all" 
                                         required
+                                        aria-required="true"
                                     />
                                 </div>
                                 <div>
@@ -341,10 +388,23 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
             {requestType === RequestType.BACKUP && (
                 <div id="backup-container" className="space-y-5">
                     {backups.map((backup, index) => (
-                        <div key={backup.id} className="bg-gray-50 border border-gray-200 rounded-lg p-5 relative">
-                            <div className="absolute -top-3 right-5 bg-[#2ecc71] text-white px-3 py-1 text-sm font-bold rounded">مشخصات Backup</div>
+                        <div key={backup.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-[#2ecc71] text-white px-3 py-1 text-sm font-bold rounded shadow-md">مشخصات Backup</div>
                             <div className="flex justify-between items-center mt-3 mb-4">
-                                <div className="text-sm font-semibold text-gray-500">مشخصات Backup</div>
+                                <div className="text-sm font-semibold text-gray-500">مشخصات Backup {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {backups.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeBackup(backup.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                            aria-label={`حذف رکورد ${index + 1}`}
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
@@ -401,6 +461,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                             </div>
                         </div>
                     ))}
+                    <button
+                        type="button"
+                        onClick={addBackup}
+                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#2ecc71] rounded-lg text-[#2ecc71] font-semibold hover:bg-green-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#2ecc71] focus:ring-offset-2"
+                        aria-label="افزودن رکورد جدید"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        <span>افزودن رکورد جدید</span>
+                    </button>
                 </div>
             )}
 
@@ -408,11 +477,28 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
             {requestType === RequestType.VDI && (
                 <div id="vdi-container" className="space-y-5">
                     {vdis.map((vdi, index) => (
-                        <div key={vdi.id} className="bg-gray-50 border border-gray-200 rounded-lg p-5 relative">
-                            <div className="absolute -top-3 right-5 bg-[#9b59b6] text-white px-3 py-1 text-sm font-bold rounded">مشخصات VDI</div>
+                        <div key={vdi.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-[#9b59b6] text-white px-3 py-1 text-sm font-bold rounded shadow-md">مشخصات VDI</div>
+                            
+                            <div className="flex justify-between items-center mt-3 mb-4">
+                                <div className="text-sm font-semibold text-gray-500">مشخصات VDI {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {vdis.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeVdi(vdi.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                            aria-label={`حذف رکورد ${index + 1}`}
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                             
                             {/* Warning Message */}
-                            <div className="mt-3 mb-4 p-3 bg-yellow-50 border-r-4 border-yellow-400 rounded">
+                            <div className="mb-4 p-3 bg-yellow-50 border-r-4 border-yellow-400 rounded">
                                 <p className="text-sm text-yellow-800 font-semibold">
                                     ⚠️ در صورت نیاز به انتقال فایل اطلاعات فرم را به صورت کامل پر کنید. در غیر این صورت ترتیب اثر داده نخواهد شد.
                                 </p>
@@ -475,13 +561,36 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                             </div>
                         </div>
                     ))}
+                    <button
+                        type="button"
+                        onClick={addVdi}
+                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#9b59b6] rounded-lg text-[#9b59b6] font-semibold hover:bg-purple-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#9b59b6] focus:ring-offset-2"
+                        aria-label="افزودن رکورد جدید"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        <span>افزودن رکورد جدید</span>
+                    </button>
                 </div>
             )}
             
             <div className="flex justify-center mt-8">
-                <button onClick={handleSubmit} className="flex items-center gap-3 px-10 py-4 bg-[#3498db] text-white font-bold text-lg rounded-md hover:bg-[#2980b9] transition-colors transform hover:-translate-y-0.5 cursor-pointer">
-                    <SendIcon className="w-6 h-6" />
-                    <span>ارسال درخواست</span>
+                <button 
+                    onClick={handleSubmit} 
+                    disabled={isSubmitting}
+                    className="flex items-center gap-3 px-10 py-4 bg-[#3498db] text-white font-bold text-lg rounded-md hover:bg-[#2980b9] disabled:bg-gray-400 disabled:cursor-not-allowed transition-all transform hover:-translate-y-0.5 active:translate-y-0 focus:outline-none focus:ring-2 focus:ring-[#3498db] focus:ring-offset-2"
+                    aria-label="ارسال درخواست"
+                >
+                    {isSubmitting ? (
+                        <>
+                            <div className="spinner"></div>
+                            <span>در حال ارسال...</span>
+                        </>
+                    ) : (
+                        <>
+                            <SendIcon className="w-6 h-6" />
+                            <span>ارسال درخواست</span>
+                        </>
+                    )}
                 </button>
             </div>
         </div>

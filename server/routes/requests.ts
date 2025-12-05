@@ -9,7 +9,7 @@ function getApprovalHierarchy(requestType: string): string[] {
   if (requestType === 'BACKUP') {
     // For BACKUP: REQUESTER -> GROUP_LEAD -> NETWORK_HEAD -> NETWORK_ADMIN
     return ['GROUP_LEAD', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
-  } else if (requestType === 'VDI') {
+  } else if (requestType === 'VDI_OPEN') {
     // For VDI: REQUESTER -> DEPUTY -> NETWORK_HEAD -> NETWORK_ADMIN
     return ['DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   } else {

@@ -77,40 +77,57 @@ const Header: React.FC<HeaderProps> = ({ onShowHistory }) => {
     };
 
     return (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-white shadow-md p-3 flex justify-between items-center border-b border-gray-200">
-            <div className="flex items-center gap-4">
+        <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-md p-3 flex flex-col md:flex-row justify-between items-center gap-3 border-b border-gray-200">
+            <div className="flex items-center gap-2 md:gap-4 flex-wrap">
                  <button 
                     onClick={onShowHistory}
-                    className="bg-[#2c3e50] text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-[#1a252f] transition-colors text-sm cursor-pointer">
+                    className="bg-[#2c3e50] text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-[#1a252f] transition-all text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#2c3e50] focus:ring-offset-2 font-medium shadow-sm hover:shadow-md"
+                    aria-label="مشاهده تاریخچه درخواست‌ها"
+                >
                     <ClockIcon className="w-5 h-5"/>
-                    تاریخچه
+                    <span className="hidden sm:inline">تاریخچه</span>
                  </button>
                  {permission !== 'granted' && (
                     <button 
                         onClick={handleEnableNotifications}
                         disabled={isRequesting}
-                        className="bg-[#3498db] text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-[#2980b9] transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-                        {isRequesting ? 'در حال فعال‌سازی...' : '🔔 فعال‌سازی اعلان‌ها'}
+                        className="bg-[#3498db] text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-[#2980b9] transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#3498db] focus:ring-offset-2 font-medium shadow-sm hover:shadow-md"
+                        aria-label="فعال‌سازی اعلان‌ها"
+                    >
+                        {isRequesting ? (
+                            <>
+                                <div className="spinner"></div>
+                                <span className="hidden sm:inline">در حال فعال‌سازی...</span>
+                            </>
+                        ) : (
+                            <>
+                                <span>🔔</span>
+                                <span className="hidden sm:inline">فعال‌سازی اعلان‌ها</span>
+                            </>
+                        )}
                     </button>
                  )}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-center">
                 <div className="flex items-center gap-2 text-sm text-gray-700">
                     <UserIcon className="w-5 h-5 text-[#3498db]"/>
-                    <span>خوش آمدید،</span>
+                    <span className="hidden md:inline">خوش آمدید،</span>
                     <span className="font-bold">{user.name}</span>
-                    <span className="text-gray-500">({ROLE_NAMES[user.role]})</span>
+                    <span className="text-gray-500 hidden lg:inline">({ROLE_NAMES[user.role]})</span>
                 </div>
-                 <div className="h-6 border-l border-gray-300"></div>
+                 <div className="h-6 border-l border-gray-300 hidden md:block"></div>
                  <button
                     onClick={() => setShowChangePassword(true)}
-                    className="bg-[#9b59b6] text-white px-4 py-2 rounded-md hover:bg-[#8e44ad] transition text-sm font-semibold cursor-pointer"
+                    className="bg-[#9b59b6] text-white px-3 md:px-4 py-2 rounded-md hover:bg-[#8e44ad] transition-all text-sm font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#9b59b6] focus:ring-offset-2 shadow-sm hover:shadow-md"
+                    aria-label="تغییر رمز عبور"
                 >
-                    تغییر رمز عبور
+                    <span className="hidden sm:inline">تغییر رمز عبور</span>
+                    <span className="sm:hidden">رمز</span>
                 </button>
                 <button
                     onClick={logout}
-                    className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition text-sm font-semibold cursor-pointer"
+                    className="bg-red-500 text-white px-3 md:px-4 py-2 rounded-md hover:bg-red-600 transition-all text-sm font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 shadow-sm hover:shadow-md"
+                    aria-label="خروج از سیستم"
                 >
                     خروج
                 </button>
@@ -119,7 +136,7 @@ const Header: React.FC<HeaderProps> = ({ onShowHistory }) => {
                 isOpen={showChangePassword} 
                 onClose={() => setShowChangePassword(false)} 
             />
-        </div>
+        </header>
     );
 };
 
