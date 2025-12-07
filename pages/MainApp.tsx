@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Request, Role, Status, FileDetail, BackupDetail, VDIDetail, RequestType } from '../types';
+import { Request, Role, Status, FileDetail, BackupDetail, RequestType } from '../types';
 import { ROLE_HIERARCHY } from '../constants';
 import RequestForm from '../components/RequestForm';
 import RequestList from '../components/RequestList';
@@ -89,14 +89,8 @@ const MainApp: React.FC = () => {
                 const requesterName = request.requesterName;
                 const itemsCount = request.requestType === RequestType.FILE_TRANSFER 
                     ? request.files?.length || 0 
-                    : request.requestType === RequestType.VDI
-                    ? request.vdis?.length || 0
                     : request.backups?.length || 0;
-                const itemsType = request.requestType === RequestType.FILE_TRANSFER 
-                    ? 'فایل' 
-                    : request.requestType === RequestType.VDI
-                    ? 'درخواست VDI'
-                    : 'درخواست backup';
+                const itemsType = request.requestType === RequestType.FILE_TRANSFER ? 'فایل' : 'درخواست backup';
                 
                 showNotification({
                     title: 'درخواست جدید برای بررسی',
@@ -112,7 +106,7 @@ const MainApp: React.FC = () => {
         previousPendingIdsRef.current = currentPendingIds;
     }, [pendingRequests, currentUser.role, showNotification]);
 
-    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[] }) => {
+    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[] }) => {
         try {
             const newRequest = await requestsAPI.create(data);
             setRequests(prev => [newRequest, ...prev]);
