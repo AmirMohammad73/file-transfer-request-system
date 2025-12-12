@@ -17,6 +17,9 @@ export const registerServiceWorker = async (): Promise<ServiceWorkerRegistration
     serviceWorkerRegistration = registration;
     console.log('Service Worker ثبت شد:', registration.scope);
     
+    // منتظر فعال شدن Service Worker بمان
+    await navigator.serviceWorker.ready;
+    
     return registration;
   } catch (error) {
     console.error('خطا در ثبت Service Worker:', error);
@@ -36,12 +39,19 @@ export const requestNotificationPermission = async (): Promise<NotificationPermi
   }
 
   if (Notification.permission === 'denied') {
+    console.warn('کارکن مجوز اعلان را رد کرده است');
     return 'denied';
   }
 
   // درخواست permission
-  const permission = await Notification.requestPermission();
-  return permission;
+  try {
+    const permission = await Notification.requestPermission();
+    console.log('نتیجه درخواست مجوز:', permission);
+    return permission;
+  } catch (error) {
+    console.error('خطا در درخواست مجوز:', error);
+    return 'denied';
+  }
 };
 
 // نمایش Notification از طریق Service Worker
@@ -50,6 +60,8 @@ export const showNotification = async (options: {
   body: string;
   tag?: string;
   icon?: string;
+  requireInteraction?: boolean;
+  silent?: boolean;
 }): Promise<void> => {
   if (!('Notification' in window)) {
     console.warn('این مرورگر از Notification API پشتیبانی نمی‌کند');
@@ -62,7 +74,28 @@ export const showNotification = async (options: {
     return;
   }
 
-  // اگر Service Worker فعال است، از آن استفاده کن
+  // ابتدا سعی می‌کنیم از Service Worker استفاده کنیم
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    try {
+      // ارسال پیام به Service Worker
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SHOW_NOTIFICATION',
+        title: options.title,
+        body: options.body,
+        tag: options.tag,
+        icon: options.icon,
+        requireInteraction: options.requireInteraction !== undefined ? options.requireInteraction : true, // پیش‌فرض true
+        silent: options.silent !== undefined ? options.silent : false,
+      });
+      
+      console.log('پیام به Service Worker ارسال شد');
+      return;
+    } catch (error) {
+      console.error('خطا در ارسال پیام به Service Worker:', error);
+    }
+  }
+
+  // Fallback 1: استفاده مستقیم از Service Worker registration
   if (serviceWorkerRegistration && 'showNotification' in serviceWorkerRegistration) {
     try {
       await serviceWorkerRegistration.showNotification(options.title, {
@@ -72,7 +105,8 @@ export const showNotification = async (options: {
         tag: options.tag,
         dir: 'rtl',
         lang: 'fa',
-        requireInteraction: false,
+        requireInteraction: options.requireInteraction !== undefined ? options.requireInteraction : true, // مهم
+        silent: options.silent !== undefined ? options.silent : false,
       });
       return;
     } catch (error) {
@@ -80,27 +114,46 @@ export const showNotification = async (options: {
     }
   }
 
-  // Fallback: استفاده از Notification API مستقیم
+  // Fallback 2: استفاده از Notification API مستقیم
   if ('Notification' in window && Notification.permission === 'granted') {
-    const notification = new Notification(options.title, {
-      body: options.body,
-      icon: options.icon || '/favicon.ico',
-      badge: options.icon || '/favicon.ico',
-      tag: options.tag,
-      dir: 'rtl',
-      lang: 'fa',
-    });
+    try {
+      const notification = new Notification(options.title, {
+        body: options.body,
+        icon: options.icon || '/favicon.ico',
+        badge: options.icon || '/favicon.ico',
+        tag: options.tag,
+        dir: 'rtl',
+        lang: 'fa',
+        requireInteraction: options.requireInteraction !== undefined ? options.requireInteraction : true, // اینجا هم اضافه شده
+        silent: options.silent !== undefined ? options.silent : false,
+      });
 
-    // بستن خودکار بعد از 5 ثانیه
-    setTimeout(() => {
-      notification.close();
-    }, 5000);
+      console.log('اعلان مستقیم نمایش داده شد');
 
-    // کلیک روی Notification
-    notification.onclick = () => {
-      window.focus();
-      notification.close();
-    };
+      // حذف timeout بستن خودکار
+      // دیگر notification را به صورت خودکار نمی‌بندیم
+
+      // کلیک روی Notification
+      notification.onclick = () => {
+        console.log('اعلان کلیک شد');
+        window.focus();
+        notification.close();
+      };
+
+      // رویداد بسته شدن
+      notification.onclose = () => {
+        console.log('اعلان بسته شد');
+      };
+
+      // مدیریت خطا
+      notification.onerror = (error) => {
+        console.error('خطا در نمایش اعلان:', error);
+      };
+      
+      return;
+    } catch (error) {
+      console.error('خطا در نمایش اعلان مستقیم:', error);
+    }
   }
 };
 
@@ -109,3 +162,39 @@ export const getServiceWorkerRegistration = (): ServiceWorkerRegistration | null
   return serviceWorkerRegistration;
 };
 
+// تابع کمکی برای اعلان‌های مهم (همیشه باقی می‌مانند)
+export const showPersistentNotification = async (title: string, body: string, options?: {
+  icon?: string;
+  tag?: string;
+}): Promise<void> => {
+  await showNotification({
+    title,
+    body,
+    icon: options?.icon,
+    tag: options?.tag || `persistent-${Date.now()}`,
+    requireInteraction: true, // حتماً true
+    silent: false,
+  });
+};
+
+// تابع برای تست Service Worker
+export const testServiceWorker = async (): Promise<boolean> => {
+  if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+    console.warn('Service Worker فعال نیست');
+    return false;
+  }
+  
+  try {
+    // ارسال پیام تست
+    navigator.serviceWorker.controller.postMessage({
+      type: 'TEST',
+      timestamp: Date.now()
+    });
+    
+    console.log('پیام تست به Service Worker ارسال شد');
+    return true;
+  } catch (error) {
+    console.error('خطا در ارسال پیام تست:', error);
+    return false;
+  }
+};

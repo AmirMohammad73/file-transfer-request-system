@@ -13,7 +13,6 @@ interface HistoryModalProps {
   requests?: Request[];
 }
 
-// تعداد آیتم در هر صفحه
 const ITEMS_PER_PAGE = 10;
 
 const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: initialRequests }) => {
@@ -23,24 +22,26 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
   const { user } = useAuth();
   const [editingLetterNumber, setEditingLetterNumber] = useState<{ requestId: string; fileId: string } | null>(null);
   const [letterNumberValue, setLetterNumberValue] = useState('');
+  
+  // State برای track کردن فایل‌هایی که توضیحات بیشترشان باز شده
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
 
-  // --- Filter States ---
+  // Filter States
   const [filterRequestType, setFilterRequestType] = useState('');
-  const [filterStatus, setFilterStatus] = useState(''); // فیلتر جدید وضعیت
+  const [filterStatus, setFilterStatus] = useState('');
   const [filterIP, setFilterIP] = useState('');
   const [filterRequesterName, setFilterRequesterName] = useState('');
-  const [filterDepartment, setFilterDepartment] = useState(''); // فیلتر جدید واحد
+  const [filterDepartment, setFilterDepartment] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
 
-  // --- Pagination State ---
+  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     if (isOpen) { fetchHistory(); }
   }, [isOpen]);
 
-  // ریست کردن صفحه‌بندی هنگام تغییر فیلترها
   useEffect(() => {
     setCurrentPage(1);
   }, [filterRequestType, filterStatus, filterIP, filterRequesterName, filterDepartment, filterDateFrom, filterDateTo]);
@@ -57,16 +58,20 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     }
   };
 
-  // --- Filtered requests Logic ---
+  // Toggle file details - فقط add می‌کنیم، هرگز remove نمی‌کنیم
+  const toggleFileDetails = (fileId: string) => {
+    setExpandedFiles(prev => {
+      const newSet = new Set(prev);
+      newSet.add(fileId);
+      return newSet;
+    });
+  };
+
   const filteredRequests = useMemo(() => {
     return requests.filter(request => {
-      // 1. Filter by request type
       if (filterRequestType && request.requestType !== filterRequestType) { return false; }
-
-      // 2. Filter by Status (New)
       if (filterStatus && request.status !== filterStatus) { return false; }
-
-      // 3. Filter by IP
+      
       if (filterIP) {
         let hasMatchingIP = false;
         if (request.requestType === RequestType.FILE_TRANSFER && request.files) {
@@ -76,16 +81,10 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
         }
         if (!hasMatchingIP) { return false; }
       }
-
-      // 4. Filter by requester name
+      
       if (filterRequesterName && !request.requesterName.includes(filterRequesterName)) { return false; }
-
-      // 5. Filter by Department (New)
-      // توجه: فرض بر این است که پراپرتی department در آبجکت ریکوئست وجود دارد.
-      // اگر نام آن چیز دیگری است لطفا اینجا تغییر دهید.
       if (filterDepartment && !(request as any).department?.includes(filterDepartment)) { return false; }
-
-      // 6. Filter by date range
+      
       if (filterDateFrom || filterDateTo) {
         const requestDate = new Date(request.createdAt);
         if (filterDateFrom) {
@@ -103,7 +102,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     });
   }, [requests, filterRequestType, filterStatus, filterIP, filterRequesterName, filterDepartment, filterDateFrom, filterDateTo]);
 
-  // --- Pagination Logic ---
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE);
   const paginatedRequests = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -168,7 +166,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
         {/* Filters Section */}
         <div className="p-4 bg-gray-50 border-b border-gray-200">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-            {/* Request Type Filter */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">نوع درخواست</label>
               <select value={filterRequestType} onChange={(e) => setFilterRequestType(e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]">
@@ -179,7 +176,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
               </select>
             </div>
             
-            {/* Status Filter (New) */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">وضعیت</label>
               <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]">
@@ -191,52 +187,46 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
               </select>
             </div>
 
-            {/* IP Filter */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">IP (مبدا یا مقصد)</label>
               <input type="text" value={filterIP} onChange={(e) => setFilterIP(e.target.value)} placeholder="مثال: 192.168" className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]" />
             </div>
 
-            {/* Requester Name Filter */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">نام درخواست کننده</label>
               <input type="text" value={filterRequesterName} onChange={(e) => setFilterRequesterName(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]" />
             </div>
 
-            {/* Department Filter (New) */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">واحد مربوطه</label>
               <input type="text" value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} placeholder="نام واحد..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]" />
             </div>
 
-            {/* Date From Filter with Clear Button */}
             <div className="relative">
-                <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-semibold text-gray-700">از تاریخ</label>
-                    {filterDateFrom && (
-                        <button onClick={() => setFilterDateFrom('')} className="text-xs text-red-500 hover:text-red-700 cursor-pointer">
-                           حذف ×
-                        </button>
-                    )}
-                </div>
-                <PersianDatePicker value={filterDateFrom} onChange={(value) => setFilterDateFrom(value)} label="" placeholder="انتخاب تاریخ" />
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-semibold text-gray-700">از تاریخ</label>
+                {filterDateFrom && (
+                  <button onClick={() => setFilterDateFrom('')} className="text-xs text-red-500 hover:text-red-700 cursor-pointer">
+                    حذف ×
+                  </button>
+                )}
+              </div>
+              <PersianDatePicker value={filterDateFrom} onChange={(value) => setFilterDateFrom(value)} label="" placeholder="انتخاب تاریخ" />
             </div>
 
-            {/* Date To Filter with Clear Button */}
             <div className="relative">
-                <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-semibold text-gray-700">تا تاریخ</label>
-                    {filterDateTo && (
-                        <button onClick={() => setFilterDateTo('')} className="text-xs text-red-500 hover:text-red-700 cursor-pointer">
-                           حذف ×
-                        </button>
-                    )}
-                </div>
-                <PersianDatePicker value={filterDateTo} onChange={(value) => setFilterDateTo(value)} label="" placeholder="انتخاب تاریخ" />
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-semibold text-gray-700">تا تاریخ</label>
+                {filterDateTo && (
+                  <button onClick={() => setFilterDateTo('')} className="text-xs text-red-500 hover:text-red-700 cursor-pointer">
+                    حذف ×
+                  </button>
+                )}
+              </div>
+              <PersianDatePicker value={filterDateTo} onChange={(value) => setFilterDateTo(value)} label="" placeholder="انتخاب تاریخ" />
             </div>
           </div>
 
-          {/* Filter Buttons */}
           <div className="flex gap-2 mt-3">
             {hasActiveFilters && (
               <button onClick={clearFilters} className="px-4 py-2 bg-gray-500 text-white text-sm rounded-md hover:bg-gray-600 transition-colors cursor-pointer">
@@ -266,157 +256,188 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
             </div>
           ) : (
             <div className="flex flex-col h-full">
-                <div className="overflow-x-auto">
+              <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
-                    <thead>
+                  <thead>
                     <tr className="bg-gray-100 border-b-2 border-gray-300">
-                        <th className="p-3 text-right font-bold text-gray-700">شماره درخواست</th>
-                        <th className="p-3 text-right font-bold text-gray-700">نوع درخواست</th>
-                        <th className="p-3 text-right font-bold text-gray-700">نام درخواست کننده</th>
-                        <th className="p-3 text-right font-bold text-gray-700">واحد مربوطه</th> {/* ستون جدید */}
-                        <th className="p-3 text-right font-bold text-gray-700">تاریخ درخواست</th>
-                        <th className="p-3 text-right font-bold text-gray-700">وضعیت</th>
-                        <th className="p-3 text-right font-bold text-gray-700">جزئیات</th>
+                      <th className="p-3 text-right font-bold text-gray-700">شماره درخواست</th>
+                      <th className="p-3 text-right font-bold text-gray-700">نوع درخواست</th>
+                      <th className="p-3 text-right font-bold text-gray-700">نام درخواست کننده</th>
+                      <th className="p-3 text-right font-bold text-gray-700">واحد مربوطه</th>
+                      <th className="p-3 text-right font-bold text-gray-700">تاریخ درخواست</th>
+                      <th className="p-3 text-right font-bold text-gray-700">وضعیت</th>
+                      <th className="p-3 text-right font-bold text-gray-700">جزئیات</th>
                     </tr>
-                    </thead>
-                    <tbody>
+                  </thead>
+                  <tbody>
                     {paginatedRequests.map((request, index) => {
-                        const isFileTransfer = request.requestType === RequestType.FILE_TRANSFER;
-                        const isBackup = request.requestType === RequestType.BACKUP;
-                        const isVDI = request.requestType === RequestType.VDI;
-                        return (
+                      const isFileTransfer = request.requestType === RequestType.FILE_TRANSFER;
+                      const isBackup = request.requestType === RequestType.BACKUP;
+                      const isVDI = request.requestType === RequestType.VDI || request.requestType === 'VDI_OPEN';
+                      
+                      return (
                         <React.Fragment key={request.id}>
-                            <tr className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-blue-50' : 'bg-green-50'}`} onClick={() => toggleRow(request.id)}>
+                          <tr className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-blue-50' : 'bg-green-50'}`} onClick={() => toggleRow(request.id)}>
                             <td className="p-3 text-gray-800 font-semibold">#{request.id.split('-')[1]}</td>
                             <td className="p-3">
-                                <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
+                              <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
                                 {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : 'Backup'}
-                                </span>
+                              </span>
                             </td>
                             <td className="p-3 text-gray-700">{request.requesterName}</td>
-                            <td className="p-3 text-gray-700">{(request as any).department || '—'}</td> {/* مقدار ستون جدید */}
+                            <td className="p-3 text-gray-700">{(request as any).department || '—'}</td>
                             <td className="p-3 text-gray-600">{new Date(request.createdAt).toLocaleDateString('fa-IR')}</td>
                             <td className="p-3">
-                                <span className={`px-3 py-1 text-sm font-semibold rounded-full ${STATUS_STYLES[request.status].bg} ${STATUS_STYLES[request.status].color}`}>
+                              <span className={`px-3 py-1 text-sm font-semibold rounded-full ${STATUS_STYLES[request.status].bg} ${STATUS_STYLES[request.status].color}`}>
                                 {STATUS_STYLES[request.status].text}
-                                </span>
+                              </span>
                             </td>
                             <td className="p-3">
-                                <button className="text-[#3498db] hover:text-[#2980b9] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#3498db] focus:ring-offset-2 rounded px-2 py-1" aria-label={expandedRow === request.id ? 'بستن جزئیات' : 'نمایش جزئیات'} aria-expanded={expandedRow === request.id}>
+                              <button className="text-[#3498db] hover:text-[#2980b9] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#3498db] focus:ring-offset-2 rounded px-2 py-1" aria-label={expandedRow === request.id ? 'بستن جزئیات' : 'نمایش جزئیات'} aria-expanded={expandedRow === request.id}>
                                 {expandedRow === request.id ? 'کمتر ▼' : 'بیشتر ▶'}
-                                </button>
+                              </button>
                             </td>
-                            </tr>
-                            {expandedRow === request.id && (
+                          </tr>
+                          {expandedRow === request.id && (
                             <tr>
-                                <td colSpan={7} className="p-4 bg-gray-50"> {/* colSpan changed to 7 */}
+                              <td colSpan={7} className="p-4 bg-gray-50">
                                 <div className="space-y-4">
-                                    {isFileTransfer && request.files && (
+                                  {isFileTransfer && request.files && (
                                     <div className="space-y-3">
-                                        {request.files.map((file, index) => {
-                                        const fileBgClass = index % 2 === 0 ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200';
+                                      {request.files.map((file, fileIndex) => {
+                                        const fileBgClass = fileIndex % 2 === 0 ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200';
+                                        const isFileExpanded = expandedFiles.has(file.id);
+                                        
                                         return (
-                                            <div key={file.id} className={`${fileBgClass} p-4 rounded border`}>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-                                                <div><strong className="text-gray-600">نام فایل:</strong> {file.fileName}</div>
-                                                <div className="lg:col-span-2"><strong className="text-gray-600">محتوای فایل:</strong> {file.fileContent}</div>
-                                                <div><strong className="text-gray-600">آدرس IP مبدا:</strong> {file.sourceIP}</div>
-                                                <div className="lg:col-span-2"><strong className="text-gray-600">مسیر فایل مبدا:</strong> {file.sourceFilePath}</div>
-                                                <div><strong className="text-gray-600">آدرس IP مقصد:</strong> {file.destinationIP}</div>
-                                                <div className="lg:col-span-2"><strong className="text-gray-600">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
-                                                <div><strong className="text-gray-600">فرمت فایل:</strong> {file.fileFormat}</div>
-                                                <div className="lg:col-span-2"><strong className="text-gray-600">شخص/سازمان گیرنده:</strong> {file.recipient}</div>
-                                                <div className="lg:col-span-3">
-                                                <strong className="text-gray-600">شماره نامه:</strong>{' '}
-                                                {editingLetterNumber?.requestId === request.id && editingLetterNumber?.fileId === file.id ? (
-                                                    <div className="inline-flex items-center gap-2 mt-1">
-                                                    <input type="text" value={letterNumberValue} onChange={(e) => setLetterNumberValue(e.target.value)} className="px-2 py-1 border border-gray-300 rounded text-sm" placeholder="شماره نامه را وارد کنید" autoFocus />
-                                                    <button onClick={() => handleSaveLetterNumber(request.id, file.id)} className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 cursor-pointer"> ذخیره </button>
-                                                    <button onClick={handleCancelEdit} className="px-3 py-1 bg-gray-400 text-white rounded text-sm hover:bg-gray-500 cursor-pointer"> انصراف </button>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-gray-700">
-                                                    {file.letterNumber || '—'}
-                                                    {isRequester(request) && !file.letterNumber && (
-                                                        <button onClick={() => handleEditLetterNumber(request.id, file.id)} className="mr-2 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"> افزودن شماره نامه </button>
+                                          <div key={file.id} className={`${fileBgClass} p-4 rounded border`}>
+                                            {/* فیلدهای اصلی - همیشه نمایش داده می‌شوند */}
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm mb-3">
+                                              <div className="md:col-span-2"><strong className="text-gray-600">نام فایل:</strong> {file.fileName}</div>
+                                              <div><strong className="text-gray-600">آدرس IP مبدا:</strong> {file.sourceIP}</div>
+                                              <div><strong className="text-gray-600">مسیر فایل مبدا:</strong> {file.sourceFilePath}</div>
+                                              <div><strong className="text-gray-600">آدرس IP مقصد:</strong> {file.destinationIP}</div>
+                                              <div><strong className="text-gray-600">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
+                                            </div>
+                                            
+                                            {/* دکمه توضیحات بیشتر - فقط اگر باز نشده باشد */}
+                                            {!isFileExpanded && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  toggleFileDetails(file.id);
+                                                }}
+                                                className="text-[#3498db] hover:text-[#2980b9] font-semibold text-sm flex items-center gap-1 transition-colors"
+                                              >
+                                                <span>توضیحات بیشتر</span>
+                                                <span>▼</span>
+                                              </button>
+                                            )}
+                                            
+                                            {/* فیلدهای اضافی - فقط بعد از کلیک نمایش داده می‌شوند */}
+                                            {isFileExpanded && (
+                                              <div className="mt-3 pt-3 border-t border-gray-300">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                                  <div className="md:col-span-2"><strong className="text-gray-600">محتوای فایل:</strong> {file.fileContent}</div>
+                                                  <div><strong className="text-gray-600">فرمت فایل:</strong> {file.fileFormat}</div>
+                                                  <div><strong className="text-gray-600">شخص/سازمان گیرنده:</strong> {file.recipient}</div>
+                                                  <div className="md:col-span-2">
+                                                    <strong className="text-gray-600">شماره نامه:</strong>{' '}
+                                                    {editingLetterNumber?.requestId === request.id && editingLetterNumber?.fileId === file.id ? (
+                                                      <div className="inline-flex items-center gap-2 mt-1">
+                                                        <input type="text" value={letterNumberValue} onChange={(e) => setLetterNumberValue(e.target.value)} className="px-2 py-1 border border-gray-300 rounded text-sm" placeholder="شماره نامه را وارد کنید" autoFocus />
+                                                        <button onClick={() => handleSaveLetterNumber(request.id, file.id)} className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 cursor-pointer"> ذخیره </button>
+                                                        <button onClick={handleCancelEdit} className="px-3 py-1 bg-gray-400 text-white rounded text-sm hover:bg-gray-500 cursor-pointer"> انصراف </button>
+                                                      </div>
+                                                    ) : (
+                                                      <span className="text-gray-700">
+                                                        {file.letterNumber || '—'}
+                                                        {isRequester(request) && !file.letterNumber && (
+                                                          <button onClick={() => handleEditLetterNumber(request.id, file.id)} className="mr-2 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"> افزودن شماره نامه </button>
+                                                        )}
+                                                      </span>
                                                     )}
-                                                    </span>
-                                                )}
+                                                  </div>
+                                                  <div className="md:col-span-2"><strong className="text-gray-600">فیلدهای فایل:</strong> {file.fileFields || '—'}</div>
                                                 </div>
-                                                <div className="lg:col-span-3"><strong className="text-gray-600">فیلدهای فایل:</strong> {file.fileFields || '—'}</div>
-                                            </div>
-                                            </div>
-                                        )})}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                    )}
-                                    {isBackup && request.backups && (
+                                  )}
+                                  
+                                  {isBackup && request.backups && (
                                     <div className="space-y-3">
-                                        {request.backups.map((backup, index) => {
-                                        const backupBgClass = index % 2 === 0 ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200';
+                                      {request.backups.map((backup, backupIndex) => {
+                                        const backupBgClass = backupIndex % 2 === 0 ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200';
                                         return (
-                                            <div key={backup.id} className={`${backupBgClass} p-4 rounded border`}>
+                                          <div key={backup.id} className={`${backupBgClass} p-4 rounded border`}>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                                <div><strong className="text-gray-600">IP سرور:</strong> {backup.serverIP}</div>
-                                                <div><strong className="text-gray-600">نحوه بکاپ گیری:</strong> {backup.backupMethod === 'FULL' ? 'کامل' : 'تغییرات'}</div>
-                                                <div className="md:col-span-2"><strong className="text-gray-600">مسیر نگهداری:</strong> {backup.storagePath || '—'}</div>
-                                                <div><strong className="text-gray-600">زمان بندی:</strong> {backup.schedule}</div>
-                                                <div><strong className="text-gray-600">مدت زمان نگهداری:</strong> {backup.retentionPeriod}</div>
+                                              <div><strong className="text-gray-600">IP سرور:</strong> {backup.serverIP}</div>
+                                              <div><strong className="text-gray-600">نحوه بکاپ گیری:</strong> {backup.backupMethod === 'FULL' ? 'کامل' : 'تغییرات'}</div>
+                                              <div className="md:col-span-2"><strong className="text-gray-600">مسیر نگهداری:</strong> {backup.storagePath || '—'}</div>
+                                              <div><strong className="text-gray-600">زمان بندی:</strong> {backup.schedule}</div>
+                                              <div><strong className="text-gray-600">مدت زمان نگهداری:</strong> {backup.retentionPeriod}</div>
                                             </div>
-                                            </div>
-                                        )})}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                    )}
-                                    {isVDI && request.vdis && (
+                                  )}
+                                  
+                                  {isVDI && request.vdis && (
                                     <div className="space-y-3">
-                                        {request.vdis.map((vdi, index) => {
-                                        const vdiBgClass = index % 2 === 0 ? 'bg-purple-50 border-purple-200' : 'bg-indigo-50 border-indigo-200';
+                                      {request.vdis.map((vdi, vdiIndex) => {
+                                        const vdiBgClass = vdiIndex % 2 === 0 ? 'bg-purple-50 border-purple-200' : 'bg-indigo-50 border-indigo-200';
                                         return (
-                                            <div key={vdi.id} className={`${vdiBgClass} p-4 rounded border`}>
+                                          <div key={vdi.id} className={`${vdiBgClass} p-4 rounded border`}>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                                <div><strong className="text-gray-600">نوع مدیای انتقال DATA:</strong> {vdi.transferMediaType || '—'}</div>
-                                                <div><strong className="text-gray-600">نام فایل یا فولدر:</strong> {vdi.fileOrFolderName || '—'}</div>
-                                                <div><strong className="text-gray-600">آدرس مبدا:</strong> {vdi.sourceAddress || '—'}</div>
-                                                <div><strong className="text-gray-600">آدرس مقصد:</strong> {vdi.destinationAddress || '—'}</div>
-                                                <div className="md:col-span-2"><strong className="text-gray-600">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
+                                              <div><strong className="text-gray-600">نوع مدیای انتقال DATA:</strong> {vdi.transferMediaType || '—'}</div>
+                                              <div><strong className="text-gray-600">نام فایل یا فولدر:</strong> {vdi.fileOrFolderName || '—'}</div>
+                                              <div><strong className="text-gray-600">آدرس مبدا:</strong> {vdi.sourceAddress || '—'}</div>
+                                              <div><strong className="text-gray-600">آدرس مقصد:</strong> {vdi.destinationAddress || '—'}</div>
+                                              <div className="md:col-span-2"><strong className="text-gray-600">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
                                             </div>
-                                            </div>
-                                        )})}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                    )}
-                                    <ApprovalStatus request={request} />
+                                  )}
+                                  
+                                  <ApprovalStatus request={request} />
                                 </div>
-                                </td>
+                              </td>
                             </tr>
-                            )}
+                          )}
                         </React.Fragment>
-                        );
+                      );
                     })}
-                    </tbody>
+                  </tbody>
                 </table>
-                </div>
+              </div>
 
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
+              {totalPages > 1 && (
                 <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200 px-2">
-                    <button
+                  <button
                     onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                     disabled={currentPage === 1}
                     className="px-3 py-1 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
-                    >
+                  >
                     قبلی
-                    </button>
-                    <span className="text-sm text-gray-700">
+                  </button>
+                  <span className="text-sm text-gray-700">
                     صفحه <span className="font-medium">{currentPage}</span> از <span className="font-medium">{totalPages}</span>
-                    </span>
-                    <button
+                  </span>
+                  <button
                     onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                     disabled={currentPage === totalPages}
                     className="px-3 py-1 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
-                    >
+                  >
                     بعدی
-                    </button>
+                  </button>
                 </div>
-                )}
+              )}
             </div>
           )}
         </div>

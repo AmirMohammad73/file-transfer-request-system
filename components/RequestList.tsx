@@ -16,6 +16,9 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  
+  // State برای track کردن فایل‌هایی که توضیحات بیشترشان باز شده
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
 
   const toggleRequest = (requestId: string) => {
     if (expandedRequest === requestId) {
@@ -23,6 +26,15 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
     } else {
       setExpandedRequest(requestId);
     }
+  };
+
+  // Toggle file details - فقط add می‌کنیم، هرگز remove نمی‌کنیم
+  const toggleFileDetails = (fileId: string) => {
+    setExpandedFiles(prev => {
+      const newSet = new Set(prev);
+      newSet.add(fileId);
+      return newSet;
+    });
   };
 
   const handleApproveClick = (requestId: string) => {
@@ -89,7 +101,7 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
               const isExpanded = expandedRequest === request.id;
               const isFileTransfer = request.requestType === RequestType.FILE_TRANSFER;
               const isBackup = request.requestType === RequestType.BACKUP;
-              const isVDI = request.requestType === RequestType.VDI;
+              const isVDI = request.requestType === RequestType.VDI || request.requestType === 'VDI_OPEN';
               
               return (
                 <div key={request.id} className={`bg-white border-2 rounded-lg shadow-sm transition-all ${
@@ -112,8 +124,17 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                         }`}>
                           {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : 'Backup'}
                         </span>
-                        <div className="text-gray-700">
-                          <span className="font-semibold">{request.requesterName}</span>
+                        {/* من اینجام - اضافه کردن واحد مربوطه */}
+                        <div className="text-gray-700 flex flex-col md:flex-row md:items-center md:gap-4">
+                          <div>
+                            <span className="font-semibold">{request.requesterName}</span>
+                          </div>
+                          <div className="text-sm text-gray-500 mt-1 md:mt-0">
+                            <span className="font-medium text-gray-600"></span>{' '}
+                            <span className="bg-gray-100 px-2 py-1 rounded text-xs">
+                              {request.department || 'تعیین نشده'}
+                            </span>
+                          </div>
                         </div>
                         <div className="text-sm text-gray-500">
                           {new Date(request.createdAt).toLocaleDateString('fa-IR')}
@@ -161,27 +182,55 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
 
                         {/* File/Backup/VDI Details */}
                         <div className="space-y-4">
-                          {isFileTransfer && request.files && request.files.map((file, index) => (
-                            <div key={file.id} className="p-3 bg-blue-50 rounded-md border border-blue-100">
-                              <div className="font-bold text-gray-700 mb-2">فایل {index + 1}</div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-sm">
-                                <div><strong className="text-gray-500">نام فایل:</strong> {file.fileName}</div>
-                                <div className="lg:col-span-2"><strong className="text-gray-500">محتوای فایل:</strong> {file.fileContent}</div>
-                                <div><strong className="text-gray-500">آدرس IP مبدا:</strong> {file.sourceIP}</div>
-                                <div className="lg:col-span-2"><strong className="text-gray-500">مسیر فایل مبدا:</strong> {file.sourceFilePath}</div>
-                                <div><strong className="text-gray-500">آدرس IP مقصد:</strong> {file.destinationIP}</div>
-                                <div className="lg:col-span-2"><strong className="text-gray-500">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
-                                <div><strong className="text-gray-500">فرمت فایل:</strong> {file.fileFormat}</div>
-                                <div className="lg:col-span-2"><strong className="text-gray-500">شخص/سازمان گیرنده:</strong> {file.recipient}</div>
-                                <div><strong className="text-gray-500">شماره نامه:</strong> {file.letterNumber || '—'}</div>
-                                <div className="lg:col-span-2"><strong className="text-gray-500">فیلدهای فایل:</strong> <span className="text-gray-700">{file.fileFields || '—'}</span></div>
+                          {isFileTransfer && request.files && request.files.map((file, fileIndex) => {
+                            const isFileExpanded = expandedFiles.has(file.id);
+                            
+                            return (
+                              <div key={file.id} className="p-3 bg-blue-50 rounded-md border border-blue-100">
+                                <div className="font-bold text-gray-700 mb-2">فایل {fileIndex + 1}</div>
+                                
+                                {/* فیلدهای اصلی - همیشه نمایش داده می‌شوند */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm mb-3">
+                                  <div className="md:col-span-2"><strong className="text-gray-500">نام فایل:</strong> {file.fileName}</div>
+                                  <div><strong className="text-gray-500">آدرس IP مبدا:</strong> {file.sourceIP}</div>
+                                  <div><strong className="text-gray-500">مسیر فایل مبدا:</strong> {file.sourceFilePath}</div>
+                                  <div><strong className="text-gray-500">آدرس IP مقصد:</strong> {file.destinationIP}</div>
+                                  <div><strong className="text-gray-500">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
+                                </div>
+                                
+                                {/* دکمه توضیحات بیشتر - فقط اگر باز نشده باشد */}
+                                {!isFileExpanded && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleFileDetails(file.id);
+                                    }}
+                                    className="text-[#3498db] hover:text-[#2980b9] font-semibold text-sm flex items-center gap-1 transition-colors"
+                                  >
+                                    <span>توضیحات بیشتر</span>
+                                    <span>▼</span>
+                                  </button>
+                                )}
+                                
+                                {/* فیلدهای اضافی - فقط بعد از کلیک نمایش داده می‌شوند */}
+                                {isFileExpanded && (
+                                  <div className="mt-3 pt-3 border-t border-blue-200">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                      <div className="md:col-span-2"><strong className="text-gray-500">محتوای فایل:</strong> {file.fileContent}</div>
+                                      <div><strong className="text-gray-500">فرمت فایل:</strong> {file.fileFormat}</div>
+                                      <div><strong className="text-gray-500">شخص/سازمان گیرنده:</strong> {file.recipient}</div>
+                                      <div><strong className="text-gray-500">شماره نامه:</strong> {file.letterNumber || '—'}</div>
+                                      <div className="md:col-span-2"><strong className="text-gray-500">فیلدهای فایل:</strong> <span className="text-gray-700">{file.fileFields || '—'}</span></div>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
 
-                          {isBackup && request.backups && request.backups.map((backup, index) => (
+                          {isBackup && request.backups && request.backups.map((backup, backupIndex) => (
                             <div key={backup.id} className="p-3 bg-green-50 rounded-md border border-green-100">
-                              <div className="font-bold text-gray-700 mb-2">Backup {index + 1}</div>
+                              <div className="font-bold text-gray-700 mb-2">Backup {backupIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                                 <div><strong className="text-gray-500">IP سرور:</strong> {backup.serverIP}</div>
                                 <div><strong className="text-gray-500">نحوه بکاپ گیری:</strong> {backup.backupMethod === 'FULL' ? 'کامل' : 'تغییرات'}</div>
@@ -192,9 +241,9 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                             </div>
                           ))}
 
-                          {isVDI && request.vdis && request.vdis.map((vdi, index) => (
+                          {isVDI && request.vdis && request.vdis.map((vdi, vdiIndex) => (
                             <div key={vdi.id} className="p-3 bg-purple-50 rounded-md border border-purple-100">
-                              <div className="font-bold text-gray-700 mb-2">VDI {index + 1}</div>
+                              <div className="font-bold text-gray-700 mb-2">VDI {vdiIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                                 <div><strong className="text-gray-500">نوع مدیای انتقال DATA:</strong> {vdi.transferMediaType || '—'}</div>
                                 <div><strong className="text-gray-500">نام فایل یا فولدر:</strong> {vdi.fileOrFolderName || '—'}</div>

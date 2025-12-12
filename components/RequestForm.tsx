@@ -252,7 +252,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
+                                {/* نام فایل - تک ستونی */}
+                                <div className="md:col-span-2">
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         نام فایل <span className="text-red-500">*</span>
                                     </label>
@@ -265,18 +266,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         aria-required="true"
                                     />
                                 </div>
-                                <div>
-                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
-                                        محتوای فایل <span className="text-red-500">*</span>
-                                    </label>
-                                    <input 
-                                        type="text" 
-                                        value={file.fileContent} 
-                                        onChange={e => handleFileChange(index, 'fileContent', e.target.value)} 
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
-                                        required
-                                    />
-                                </div>
+                                
+                                {/* آدرس IP مبدا */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         آدرس IP مبدا <span className="text-red-500">*</span>
@@ -290,6 +281,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         required
                                     />
                                 </div>
+                                
+                                {/* مسیر فایل مبدا */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         مسیر فایل مبدا <span className="text-red-500">*</span>
@@ -303,6 +296,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         required
                                     />
                                 </div>
+                                
+                                {/* آدرس IP مقصد */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         آدرس IP مقصد <span className="text-red-500">*</span>
@@ -316,6 +311,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         required
                                     />
                                 </div>
+                                
+                                {/* مسیر فایل مقصد */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         مسیر فایل مقصد <span className="text-red-500">*</span>
@@ -329,6 +326,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         required
                                     />
                                 </div>
+                                
+                                {/* فرمت فایل */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         فرمت فایل <span className="text-red-500">*</span>
@@ -342,6 +341,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         required
                                     />
                                 </div>
+                                
+                                {/* شخص/سازمان گیرنده */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         شخص/سازمان گیرنده <span className="text-red-500">*</span>
@@ -354,7 +355,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         required
                                     />
                                 </div>
-                                <div className="md:col-span-2">
+                                
+                                {/* شماره نامه ارسال فایل */}
+                                <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         شماره نامه ارسال فایل
                                     </label>
@@ -365,6 +368,22 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                                         className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
                                     />
                                 </div>
+                                
+                                {/* محتوای فایل */}
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        محتوای فایل <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={file.fileContent} 
+                                        onChange={e => handleFileChange(index, 'fileContent', e.target.value)} 
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
+                                        required
+                                    />
+                                </div>
+                                
+                                {/* فیلدهای فایل - تک ستونی */}
                                 <div className="md:col-span-2">
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         فیلدهای فایل <span className="text-red-500">*</span>
