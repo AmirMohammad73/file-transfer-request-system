@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Request, Role, Status, FileDetail, BackupDetail, VDIDetail, RequestType } from '../types';
+import { Request, Role, Status, FileDetail, BackupDetail, RequestType } from '../types';
 import { ROLE_HIERARCHY } from '../constants';
 import RequestForm from '../components/RequestForm';
 import RequestList from '../components/RequestList';
@@ -155,7 +155,7 @@ const MainApp: React.FC = () => {
         previousCompletedIdsRef.current = currentCompletedIds;
     }, [historyRequests, currentUser.role, showNotification]);
 
-    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[] }) => {
+    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[] }) => {
         try {
             const newRequest = await requestsAPI.create(data);
             setRequests(prev => [newRequest, ...prev]);

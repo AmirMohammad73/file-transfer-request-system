@@ -32,8 +32,6 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
   // Determine approval steps based on request type
   const approvalSteps = request.requestType === RequestType.BACKUP
     ? [Role.REQUESTER, Role.GROUP_LEAD, Role.NETWORK_HEAD, Role.NETWORK_ADMIN]
-    : request.requestType === RequestType.VDI
-    ? [Role.REQUESTER, Role.DEPUTY, Role.NETWORK_HEAD, Role.NETWORK_ADMIN]
     : [Role.REQUESTER, ...ROLE_HIERARCHY];
 
   const getStatusForStep = (step: Role) => {
