@@ -20,6 +20,9 @@ const MainApp: React.FC = () => {
     const previousPendingIdsRef = useRef<Set<string>>(new Set());
     const isFirstMountRef = useRef<boolean>(true);
     
+    // برای ردیابی درخواست‌های تکمیل شده توسط REQUESTER
+    const previousCompletedIdsRef = useRef<Set<string>>(new Set());
+    
     if (!currentUser) return null;
 
     useEffect(() => {
@@ -57,6 +60,15 @@ const MainApp: React.FC = () => {
         };
 
         fetchHistory();
+        
+        // برای REQUESTER هر 30 ثانیه بررسی کن
+        if (currentUser.role === Role.REQUESTER) {
+            const interval = setInterval(() => {
+                fetchHistory();
+            }, 30000); // هر 30 ثانیه
+            
+            return () => clearInterval(interval);
+        }
     }, [currentUser]); 
 
     const pendingRequests = useMemo(() => {
@@ -68,6 +80,7 @@ const MainApp: React.FC = () => {
         return historyRequests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }, [historyRequests]);
 
+    // Notification برای تایید کنندگان (درخواست‌های جدید)
     useEffect(() => {
         if (currentUser.role === Role.REQUESTER) return;
 
@@ -89,14 +102,8 @@ const MainApp: React.FC = () => {
                 const requesterName = request.requesterName;
                 const itemsCount = request.requestType === RequestType.FILE_TRANSFER 
                     ? request.files?.length || 0 
-                    : request.requestType === RequestType.VDI
-                    ? request.vdis?.length || 0
                     : request.backups?.length || 0;
-                const itemsType = request.requestType === RequestType.FILE_TRANSFER 
-                    ? 'فایل' 
-                    : request.requestType === RequestType.VDI
-                    ? 'درخواست VDI'
-                    : 'درخواست backup';
+                const itemsType = request.requestType === RequestType.FILE_TRANSFER ? 'فایل' : 'درخواست backup';
                 
                 showNotification({
                     title: 'درخواست جدید برای بررسی',
@@ -111,6 +118,42 @@ const MainApp: React.FC = () => {
         previousPendingCountRef.current = currentPendingCount;
         previousPendingIdsRef.current = currentPendingIds;
     }, [pendingRequests, currentUser.role, showNotification]);
+
+    // Notification برای REQUESTER (درخواست‌های تکمیل شده)
+    useEffect(() => {
+        if (currentUser.role !== Role.REQUESTER) return;
+
+        const completedRequests = historyRequests.filter(req => req.status === Status.COMPLETED);
+        const currentCompletedIds = new Set(completedRequests.map(req => req.id));
+
+        // پیدا کردن درخواست‌های جدیداً تکمیل شده
+        const newlyCompletedIds = Array.from(currentCompletedIds).filter(
+            id => !previousCompletedIdsRef.current.has(id)
+        );
+
+        if (newlyCompletedIds.length > 0 && previousCompletedIdsRef.current.size > 0) {
+            newlyCompletedIds.forEach(id => {
+                const request = completedRequests.find(req => req.id === id);
+                if (request) {
+                    const requestType = request.requestType === RequestType.FILE_TRANSFER 
+                        ? 'انتقال فایل' 
+                        : request.requestType === RequestType.BACKUP 
+                        ? 'تهیه Backup' 
+                        : 'باز کردن VDI';
+                    
+                    showNotification({
+                        title: '✅ درخواست شما انجام شد',
+                        body: `درخواست ${requestType} شما (#${request.id.split('-')[1]}) با موفقیت توسط مسئول شبکه انجام و تکمیل شد.`,
+                        tag: `completed-${request.id}`,
+                    }).catch(error => {
+                        console.error('خطا در نمایش Notification:', error);
+                    });
+                }
+            });
+        }
+
+        previousCompletedIdsRef.current = currentCompletedIds;
+    }, [historyRequests, currentUser.role, showNotification]);
 
     const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[] }) => {
         try {
@@ -133,9 +176,9 @@ const MainApp: React.FC = () => {
         }
     };
 
-    const handleReject = async (id: string) => {
+    const handleReject = async (id: string, rejectionReason: string) => {
         try {
-            const updatedRequest = await requestsAPI.reject(id);
+            const updatedRequest = await requestsAPI.reject(id, rejectionReason);
             setRequests(prev => prev.map(req => req.id === id ? updatedRequest : req));
             setHistoryRequests(prev => prev.map(req => req.id === id ? updatedRequest : req));
         } catch (error: any) {

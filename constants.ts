@@ -18,17 +18,17 @@ export const ROLE_HIERARCHY: Role[] = [
 
 export const ROLE_NAMES: { [key in Role]: string } = {
   [Role.REQUESTER]: 'درخواست کننده',
-  [Role.GROUP_LEAD]: 'رئیس گروه',
-  [Role.DEPUTY]: 'معاون',
-  [Role.NETWORK_HEAD]: 'رئیس بخش شبکه',
-  [Role.NETWORK_ADMIN]: 'مسئول شبکه',
+  [Role.GROUP_LEAD]: 'رئیس واحد',
+  [Role.DEPUTY]: 'معاون/مدیر کل',
+  [Role.NETWORK_HEAD]: 'واحد شبکه و امنیت',
+  [Role.NETWORK_ADMIN]: 'پشتیبانی شبکه',
 };
 
 export const STATUS_STYLES: { [key in Status]: { text: string; bg: string; color: string } } = {
     [Status.PENDING]: { text: 'در حال بررسی', bg: 'bg-yellow-100', color: 'text-yellow-800' },
-    [Status.APPROVED]: { text: 'تایید شده', bg: 'bg-green-100', color: 'text-green-800' },
+    [Status.APPROVED]: { text: 'تایید شده', bg: 'bg-blue-100', color: 'text-blue-800' },
     [Status.REJECTED]: { text: 'رد شده', bg: 'bg-red-100', color: 'text-red-800' },
-    [Status.COMPLETED]: { text: 'انجام شده', bg: 'bg-blue-100', color: 'text-blue-800' },
+    [Status.COMPLETED]: { text: 'انجام شده', bg: 'bg-green-100', color: 'text-green-800' },
 };
 
 export const INITIAL_REQUESTS: Request[] = [

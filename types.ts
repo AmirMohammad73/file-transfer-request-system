@@ -16,7 +16,7 @@ export enum Status {
 export enum RequestType {
   FILE_TRANSFER = 'FILE_TRANSFER',  // فرم درخواست فایل از/به سرور
   BACKUP = 'BACKUP',                // فرم درخواست تهیه Backup
-  VDI = 'VDI_OPEN',                      // فرم درخواست باز کردن VDI
+  VDI = 'VDI_OPEN',                 // فرم درخواست باز کردن VDI
 }
 
 export interface FileDetail {
@@ -56,6 +56,7 @@ export interface Approval {
   approverName: string;
   status: Status.APPROVED | Status.REJECTED | Status.COMPLETED;
   date: string;
+  rejectionReason?: string;  // دلیل رد درخواست (اختیاری - فقط برای REJECTED)
 }
 
 export interface Request {
@@ -71,6 +72,7 @@ export interface Request {
   currentApprover: Role | null;
   createdAt: string;
   requesterGroupId?: number;
+  rejectionReason?: string;    // دلیل رد کلی درخواست
 }
 
 export interface User {

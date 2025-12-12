@@ -14,51 +14,17 @@ const pool = new Pool({
 
 const users = [
   {
-    name: 'محمد رضایی',
-    username: 'requester',
-    password: 'password123',
-    role: 'REQUESTER',
-    department: 'واحد فناوری اطلاعات'
-  },
-  {
-    name: 'علی محمدی',
-    username: 'grouplead',
-    password: 'password123',
-    role: 'GROUP_LEAD',
-    department: 'اداره'
-  },
-  {
-    name: 'رضا کریمی',
-    username: 'deputy',
-    password: 'password123',
-    role: 'DEPUTY',
-    department: 'معاونت'
-  },
-  {
-    name: 'فاطمه احمدی',
-    username: 'networkhead',
+    name: 'آقای شیخ لو',
+    username: '09122573136',
     password: 'password123',
     role: 'NETWORK_HEAD',
-    department: 'بخش شبکه'
+    department: 'اداره امنیت شبکه و زیرساخت'
   },
-  {
-    name: 'حسین نظری',
-    username: 'networkadmin',
-    password: 'password123',
-    role: 'NETWORK_ADMIN',
-    department: 'مسئول شبکه'
-  }
 ];
 
 async function seed() {
   try {
     console.log('شروع seed کردن کاربران...\n');
-
-    // حذف کاربران موجود (اختیاری - در صورت نیاز می‌توانید حذف کنید)
-    await pool.query('DELETE FROM req_users WHERE username IN ($1, $2, $3, $4, $5)', [
-      'requester', 'grouplead', 'deputy', 'networkhead', 'networkadmin'
-    ]);
-    console.log('کاربران قدیمی حذف شدند (در صورت وجود)\n');
 
     // ایجاد کاربران جدید
     for (const user of users) {

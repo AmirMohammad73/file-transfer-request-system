@@ -8,7 +8,7 @@ interface RequestListProps {
   requests: Request[];
   currentUser: User;
   onApprove: (id: string) => void;
-  onReject: (id: string) => void;
+  onReject: (id: string, rejectionReason: string) => void;
 }
 
 const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onApprove, onReject }) => {
@@ -43,10 +43,10 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
     }
   };
 
-  const handleRejectConfirm = () => {
-    if (selectedRequestId) {
+  const handleRejectConfirm = (rejectionReason?: string) => {
+    if (selectedRequestId && rejectionReason) {
       setShowRejectDialog(false);
-      onReject(selectedRequestId);
+      onReject(selectedRequestId, rejectionReason);
       setSelectedRequestId(null);
     }
   };
@@ -58,8 +58,8 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
       <ConfirmDialog
         isOpen={showApproveDialog}
         title="تایید درخواست"
-        message={`آیا از تایید درخواست #${selectedRequest?.id.split('-')[1]} مطمئن هستید؟`}
-        confirmText="بله، تایید کن"
+        message={`آیا از ${currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل' : 'تایید'} درخواست #${selectedRequest?.id.split('-')[1]} مطمئن هستید؟`}
+        confirmText={currentUser.role === Role.NETWORK_ADMIN ? 'بله، انجام شد' : 'بله، تایید کن'}
         cancelText="انصراف"
         onConfirm={handleApproveConfirm}
         onCancel={() => {
@@ -135,19 +135,17 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                       <div className="p-5">
                         {/* Action Buttons */}
                         <div className="flex gap-3 justify-end mb-4 pb-4 border-b border-dashed border-gray-300">
-                          {currentUser.role !== Role.NETWORK_ADMIN && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRejectClick(request.id);
-                              }}
-                              className="flex items-center gap-2 px-4 py-2 bg-[#e74c3c] text-white rounded-md hover:bg-[#c0392b] transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 cursor-pointer font-medium shadow-sm hover:shadow-md"
-                              aria-label="رد درخواست"
-                            >
-                              <XCircleIcon className="w-5 h-5" />
-                              <span>رد درخواست</span>
-                            </button>
-                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRejectClick(request.id);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-[#e74c3c] text-white rounded-md hover:bg-[#c0392b] transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 cursor-pointer font-medium shadow-sm hover:shadow-md"
+                            aria-label="رد درخواست"
+                          >
+                            <XCircleIcon className="w-5 h-5" />
+                            <span>رد درخواست</span>
+                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();

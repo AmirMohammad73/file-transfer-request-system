@@ -84,9 +84,10 @@ export const requestsAPI = {
     });
   },
 
-  reject: async (id: string): Promise<Request> => {
+  reject: async (id: string, rejectionReason: string): Promise<Request> => {
     return apiCall<Request>(`/requests/${id}/reject`, {
       method: 'PUT',
+      body: JSON.stringify({ rejectionReason }),
     });
   },
 

@@ -7,13 +7,10 @@ const router = express.Router();
 // Helper function to determine approval hierarchy based on request type
 function getApprovalHierarchy(requestType: string): string[] {
   if (requestType === 'BACKUP') {
-    // For BACKUP: REQUESTER -> GROUP_LEAD -> NETWORK_HEAD -> NETWORK_ADMIN
     return ['GROUP_LEAD', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   } else if (requestType === 'VDI_OPEN') {
-    // For VDI: REQUESTER -> DEPUTY -> NETWORK_HEAD -> NETWORK_ADMIN
     return ['DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   } else {
-    // For FILE_TRANSFER: REQUESTER -> GROUP_LEAD -> DEPUTY -> NETWORK_HEAD -> NETWORK_ADMIN
     return ['GROUP_LEAD', 'DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   }
 }
@@ -46,6 +43,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         r.status,
         r.current_approver,
         r.approval_history,
+        r.rejection_reason,
         r.created_at,
         u.group_ids as requester_group_ids
       FROM requests r
@@ -85,32 +83,32 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         ? JSON.parse(row.files) 
         : (Array.isArray(row.files) ? row.files : null);
       
-      const backupsData = typeof row.backups === 'string' 
-        ? JSON.parse(row.backups) 
-        : (Array.isArray(row.backups) ? row.backups : null);
-      
-      const vdisData = typeof row.vdis === 'string' 
-        ? JSON.parse(row.vdis) 
-        : (Array.isArray(row.vdis) ? row.vdis : null);
-      
       const approvalHistoryData = typeof row.approval_history === 'string'
         ? JSON.parse(row.approval_history)
         : (Array.isArray(row.approval_history) ? row.approval_history : []);
 
-      return {
+      const baseRequest: any = {
         id: row.id,
         requesterName: row.requester_name,
         department: row.department,
         requestType: row.request_type,
-        files: filesData,
-        backups: backupsData,
-        vdis: vdisData,
         status: row.status,
         currentApprover: row.current_approver,
         approvalHistory: approvalHistoryData,
+        rejectionReason: row.rejection_reason,
         createdAt: row.created_at,
         requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
       };
+
+      if (row.request_type === 'FILE_TRANSFER') {
+        baseRequest.files = filesData;
+      } else if (row.request_type === 'BACKUP') {
+        baseRequest.backups = filesData;
+      } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
+        baseRequest.vdis = filesData;
+      }
+
+      return baseRequest;
     });
 
     res.json(requests);
@@ -120,13 +118,17 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-// Get request history
+
+// این کد جایگزین endpoint فعلی /history می‌شود
+// در فایل server/routes/requests.ts
+
+// Get request history - نمایش کامل درخواست‌های گروهی با پشتیبانی از NETWORK_HEAD و NETWORK_ADMIN
 router.get('/history', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
 
     const userResult = await pool.query(
-      'SELECT role, name FROM req_users WHERE id = $1',
+      'SELECT role, name, group_ids FROM req_users WHERE id = $1',
       [userId]
     );
 
@@ -135,9 +137,12 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     }
 
     const user = userResult.rows[0];
+    const userGroupIds = user.group_ids || [];
+    const userName = user.name;
+    const userRole = user.role;
 
-    const result = await pool.query(
-      `SELECT 
+    let query = `
+      SELECT 
         r.id,
         r.requester_id,
         r.requester_name,
@@ -147,18 +152,81 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         r.status,
         r.current_approver,
         r.approval_history,
+        r.rejection_reason,
         r.created_at,
         u.group_ids as requester_group_ids
       FROM requests r
       LEFT JOIN req_users u ON r.requester_id = u.id
-      WHERE r.requester_id = $1 
-         OR EXISTS (
-           SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
-           WHERE elem->>'approverName' = $2
-         )
-      ORDER BY r.created_at DESC`,
-      [userId, user.name]
-    );
+      WHERE (
+    `;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramCount = 0;
+
+    // ===============================================
+    // شرط 1: درخواست‌های خود کاربر (اگر REQUESTER است)
+    // ===============================================
+    conditions.push(`r.requester_id = $${++paramCount}`);
+    params.push(userId);
+
+    // ===============================================
+    // شرط 2: درخواست‌هایی که این کاربر شخصاً در آنها عمل کرده
+    // ===============================================
+    conditions.push(`
+      EXISTS (
+        SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
+        WHERE elem->>'approverName' = $${++paramCount}
+      )
+    `);
+    params.push(userName);
+
+    // ===============================================
+    // شرط 3: درخواست‌های گروهی
+    // ===============================================
+    
+    if (userRole !== 'REQUESTER') {
+      // برای NETWORK_HEAD و NETWORK_ADMIN: فقط Role چک می‌شود
+      if (userRole === 'NETWORK_HEAD' || userRole === 'NETWORK_ADMIN') {
+        conditions.push(`
+          EXISTS (
+            SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
+            WHERE elem->>'approverRole' = $${++paramCount}
+          )
+        `);
+        params.push(userRole);
+      } 
+      // برای سایر نقش‌ها: هم گروه و هم Role چک می‌شود
+      else if (userGroupIds.length > 0 && !userGroupIds.includes(0)) {
+        conditions.push(`
+          (
+            -- requester در یکی از گروه‌های مشترک با این کاربر است
+            u.group_ids && $${++paramCount}::integer[]
+            AND
+            -- و درخواست توسط کسی با همان Role این کاربر پردازش شده
+            EXISTS (
+              SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
+              WHERE elem->>'approverRole' = $${++paramCount}
+            )
+          )
+        `);
+        params.push(userGroupIds, userRole);
+      }
+    }
+
+    query += conditions.join(' OR ');
+    query += `
+      )
+      ORDER BY r.created_at DESC
+    `;
+
+    console.log('=== History Query Debug ===');
+    console.log('User:', userName, '| Role:', userRole, '| Groups:', userGroupIds);
+    console.log('Query:', query);
+    console.log('Params:', params);
+    console.log('===========================');
+
+    const result = await pool.query(query, params);
 
     const requests = result.rows.map((row) => {
       const filesData = typeof row.files === 'string' 
@@ -169,7 +237,6 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         ? JSON.parse(row.approval_history)
         : (Array.isArray(row.approval_history) ? row.approval_history : []);
 
-      // بر اساس نوع درخواست، داده‌ها را به صورت مناسب برمی‌گردانیم
       const result: any = {
         id: row.id,
         requesterName: row.requester_name,
@@ -178,11 +245,11 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         status: row.status,
         currentApprover: row.current_approver,
         approvalHistory: approvalHistoryData,
+        rejectionReason: row.rejection_reason,
         createdAt: row.created_at,
         requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
       };
 
-      // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
       if (row.request_type === 'FILE_TRANSFER') {
         result.files = filesData;
       } else if (row.request_type === 'BACKUP') {
@@ -194,26 +261,24 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
       return result;
     });
 
+    console.log(`Found ${requests.length} requests for user ${userName}`);
+
     res.json(requests);
   } catch (error: any) {
     console.error('Get history error:', error);
     res.status(500).json({ error: 'خطا در دریافت تاریخچه' });
   }
 });
-
 // Create new request
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     const { type, files, backups, vdis } = req.body;
 
-    console.log('Received request to create:', { userId, type, filesCount: files?.length, backupsCount: backups?.length, vdisCount: vdis?.length });
-
     if (!type) {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
     }
 
-    // تعیین داده‌های مورد نیاز بر اساس نوع درخواست
     let dataToStore: any[] | null = null;
     
     if (type === 'FILE_TRANSFER') {
@@ -244,19 +309,46 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     const user = userResult.rows[0];
 
-    const countResult = await pool.query('SELECT COUNT(*) as count FROM requests');
-    const count = parseInt(countResult.rows[0].count) + 1;
-    const requestId = `req-${String(count).padStart(3, '0')}`;
+    // ============================================================
+    // تولید ID صحیح - بر اساس بزرگترین ID موجود
+    // ============================================================
+    
+    const maxIdResult = await pool.query(`
+      SELECT id FROM requests 
+      WHERE id ~ '^req-[0-9]+$'
+      ORDER BY 
+        CAST(SUBSTRING(id FROM 5) AS INTEGER) DESC
+      LIMIT 1
+    `);
 
-    // Determine first approver based on request type
+    let nextNumber = 1;
+
+    if (maxIdResult.rows.length > 0) {
+      const maxId = maxIdResult.rows[0].id;
+      const currentNumber = parseInt(maxId.split('-')[1]);
+      nextNumber = currentNumber + 1;
+    }
+
+    const requestId = `req-${String(nextNumber).padStart(3, '0')}`;
+
+    console.log(`=== Creating new request ===`);
+    console.log(`User: ${user.name}`);
+    console.log(`Type: ${type}`);
+    console.log(`Generated ID: ${requestId}`);
+    console.log(`===========================`);
+
+    // ============================================================
+    // ادامه منطق insert
+    // ============================================================
+
     const hierarchy = getApprovalHierarchy(type);
     const firstApprover = hierarchy[0];
 
     const insertResult = await pool.query(
       `INSERT INTO requests (
         id, requester_id, requester_name, department, request_type, files,
-        status, current_approver, approval_history
-      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb)
+        status, current_approver, approval_history, rejection_reason
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10)
       RETURNING *`,
       [
         requestId,
@@ -268,6 +360,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         'PENDING',
         firstApprover,
         '[]',
+        null,
       ]
     );
 
@@ -293,11 +386,11 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       status: row.status,
       currentApprover: row.current_approver,
       approvalHistory: approvalHistoryData,
+      rejectionReason: row.rejection_reason,
       createdAt: row.created_at,
       requesterGroupId: requesterGroupId,
     };
 
-    // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
     if (row.request_type === 'FILE_TRANSFER') {
       request.files = filesData;
     } else if (row.request_type === 'BACKUP') {
@@ -309,6 +402,15 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     res.status(201).json(request);
   } catch (error: any) {
     console.error('Create request error:', error);
+    
+    // بررسی خطای ID تکراری
+    if (error.code === '23505') {
+      return res.status(409).json({ 
+        error: 'شماره درخواست تکراری است. لطفاً دوباره تلاش کنید.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+    
     res.status(500).json({ 
       error: 'خطا در ایجاد درخواست',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -371,7 +473,6 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       }
     }
 
-    // Get approval hierarchy for this request type
     const hierarchy = getApprovalHierarchy(request.request_type);
     const currentIndex = hierarchy.indexOf(user.role);
     const isLast = currentIndex === hierarchy.length - 1;
@@ -415,10 +516,10 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       status: updatedRequest.status,
       currentApprover: updatedRequest.current_approver,
       approvalHistory: approvalHistoryData,
+      rejectionReason: updatedRequest.rejection_reason,
       createdAt: updatedRequest.created_at,
     };
 
-    // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
     if (updatedRequest.request_type === 'FILE_TRANSFER') {
       result.files = filesData;
     } else if (updatedRequest.request_type === 'BACKUP') {
@@ -439,6 +540,16 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
   try {
     const userId = (req as any).userId;
     const requestId = req.params.id;
+    const { rejectionReason } = req.body;
+
+    // اعتبارسنجی دلیل رد
+    if (!rejectionReason || typeof rejectionReason !== 'string' || rejectionReason.trim() === '') {
+      return res.status(400).json({ error: 'دلیل رد درخواست الزامی است' });
+    }
+
+    if (rejectionReason.trim().length > 500) {
+      return res.status(400).json({ error: 'دلیل رد درخواست نباید بیشتر از 500 کاراکتر باشد' });
+    }
 
     const userResult = await pool.query(
       'SELECT role, name, group_ids FROM req_users WHERE id = $1',
@@ -494,6 +605,7 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       approverName: user.name,
       status: 'REJECTED',
       date: new Date().toISOString(),
+      rejectionReason: rejectionReason.trim(),
     };
 
     approvalHistory.push(newApproval);
@@ -502,10 +614,11 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       `UPDATE requests 
        SET status = $1, 
            current_approver = $2, 
-           approval_history = $3::jsonb
-       WHERE id = $4
+           approval_history = $3::jsonb,
+           rejection_reason = $4
+       WHERE id = $5
        RETURNING *`,
-      ['REJECTED', null, JSON.stringify(approvalHistory), requestId]
+      ['REJECTED', null, JSON.stringify(approvalHistory), rejectionReason.trim(), requestId]
     );
 
     const updatedRequest = updateResult.rows[0];
@@ -523,10 +636,10 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       status: updatedRequest.status,
       currentApprover: updatedRequest.current_approver,
       approvalHistory: approvalHistoryData,
+      rejectionReason: updatedRequest.rejection_reason,
       createdAt: updatedRequest.created_at,
     };
 
-    // بر اساس نوع درخواست، داده‌ها را در فیلد مناسب قرار می‌دهیم
     if (updatedRequest.request_type === 'FILE_TRANSFER') {
       result.files = filesData;
     } else if (updatedRequest.request_type === 'BACKUP') {

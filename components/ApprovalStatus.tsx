@@ -7,6 +7,27 @@ interface ApprovalStatusProps {
   request: Request;
 }
 
+// تابع برای فرمت کردن تاریخ و ساعت به فارسی
+const formatPersianDateTime = (isoDate: string): string => {
+  const date = new Date(isoDate);
+  
+  // تاریخ فارسی
+  const persianDate = date.toLocaleDateString('fa-IR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  
+  // ساعت و دقیقه
+  const time = date.toLocaleTimeString('fa-IR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  
+  return `${persianDate} - ${time}`;
+};
+
 const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
   // Determine approval steps based on request type
   const approvalSteps = request.requestType === RequestType.BACKUP
@@ -20,7 +41,8 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
       return { 
         status: 'checked', 
         name: request.requesterName, 
-        date: new Date(request.createdAt).toLocaleDateString('fa-IR') 
+        date: formatPersianDateTime(request.createdAt),
+        rejectionReason: undefined
       };
     }
 
@@ -29,15 +51,26 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
       return {
         status: approval.status === Status.APPROVED || approval.status === Status.COMPLETED ? 'checked' : 'rejected',
         name: approval.approverName,
-        date: new Date(approval.date).toLocaleDateString('fa-IR'),
+        date: formatPersianDateTime(approval.date),
+        rejectionReason: approval.rejectionReason
       };
     }
     
     if (request.currentApprover === step && request.status === Status.PENDING) {
-      return { status: 'pending', name: ROLE_NAMES[step], date: 'در انتظار تایید' };
+      return { 
+        status: 'pending', 
+        name: ROLE_NAMES[step], 
+        date: 'در انتظار تایید',
+        rejectionReason: undefined
+      };
     }
 
-    return { status: 'unchecked', name: ROLE_NAMES[step], date: ' ' };
+    return { 
+      status: 'unchecked', 
+      name: ROLE_NAMES[step], 
+      date: ' ',
+      rejectionReason: undefined
+    };
   };
 
   return (
@@ -45,7 +78,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
       <div className="text-center font-bold mb-4 text-[#2c3e50] text-lg">مراحل تأیید</div>
       <div className={`grid ${approvalSteps.length === 4 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-5'} gap-4`}>
         {approvalSteps.map(step => {
-          const { status, name, date } = getStatusForStep(step);
+          const { status, name, date, rejectionReason } = getStatusForStep(step);
           
           let bgColor = 'bg-gray-200';
           let borderColor = 'border-gray-300';
@@ -71,8 +104,17 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
                 {status === 'rejected' && <span className={`text-xl ${iconColor}`}>×</span>}
               </div>
               <div className="text-center text-xs text-gray-600 mt-2 leading-tight">
-                <div>{name}</div>
-                <div>{date}</div>
+                <div className="font-medium">{name}</div>
+                <div className="text-gray-500 text-[10px] leading-relaxed whitespace-pre-line">{date}</div>
+                {/* نمایش دلیل رد در صورت وجود */}
+                {rejectionReason && (
+                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-right max-w-[180px] mx-auto">
+                    <div className="font-semibold text-red-700 mb-1 text-xs">دلیل رد:</div>
+                    <div className="text-red-600 text-xs leading-relaxed break-words whitespace-pre-wrap">
+                      {rejectionReason}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
