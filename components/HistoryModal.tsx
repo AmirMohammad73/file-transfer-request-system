@@ -1,21 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Request, RequestType } from '../types';
+import { Request, RequestType, Status } from '../types';
 import { STATUS_STYLES } from '../constants';
 import ApprovalStatus from './ApprovalStatus';
 import { requestsAPI } from '../utils/api';
 import { useAuth } from '../auth/AuthContext';
 import PersianDatePicker from './PersianDatePicker';
 import { useToastContext } from './ToastContainer';
+import ConfirmDialog from './ConfirmDialog';
 
 interface HistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   requests?: Request[];
+  onCancel?: (id: string) => void;
 }
 
 const ITEMS_PER_PAGE = 10;
 
-const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: initialRequests }) => {
+const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: initialRequests, onCancel }) => {
   const [requests, setRequests] = useState<Request[]>(initialRequests || []);
   const [loading, setLoading] = useState(false);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -23,10 +25,10 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
   const [editingLetterNumber, setEditingLetterNumber] = useState<{ requestId: string; fileId: string } | null>(null);
   const [letterNumberValue, setLetterNumberValue] = useState('');
   
-  // State برای track کردن فایل‌هایی که توضیحات بیشترشان باز شده
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [selectedCancelId, setSelectedCancelId] = useState<string | null>(null);
 
-  // Filter States
   const [filterRequestType, setFilterRequestType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterIP, setFilterIP] = useState('');
@@ -35,7 +37,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
 
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
@@ -58,7 +59,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     }
   };
 
-  // Toggle file details - فقط add می‌کنیم، هرگز remove نمی‌کنیم
   const toggleFileDetails = (fileId: string) => {
     setExpandedFiles(prev => {
       const newSet = new Set(prev);
@@ -78,6 +78,14 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
           hasMatchingIP = request.files.some(file =>
             file.sourceIP?.includes(filterIP) || file.destinationIP?.includes(filterIP)
           );
+        } else if (request.requestType === RequestType.BACKUP && request.backups) {
+          hasMatchingIP = request.backups.some(backup => backup.serverIP?.includes(filterIP));
+        } else if (request.requestType === RequestType.TAPE && request.tapes) {
+          hasMatchingIP = request.tapes.some(tape => tape.serverIP?.includes(filterIP));
+        } else if (request.requestType === RequestType.USB_PORT && request.usbPorts) {
+          hasMatchingIP = request.usbPorts.some(usb => usb.serverIP?.includes(filterIP));
+        } else if (request.requestType === RequestType.APP_INSTALL && request.appInstalls) {
+          hasMatchingIP = request.appInstalls.some(app => app.serverIP?.includes(filterIP));
         }
         if (!hasMatchingIP) { return false; }
       }
@@ -147,16 +155,53 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     setLetterNumberValue('');
   };
 
-  if (!isOpen) return null;
-
   const isRequester = (request: Request) => {
     return user && request.requesterName === user.name;
   };
 
+  const canCancelRequest = (request: Request) => {
+    if (!isRequester(request)) return false;
+    if (request.status === Status.COMPLETED) return false;
+    if (request.status === 'CANCELLED' as any) return false;
+    return true;
+  };
+
+  const handleCancelClick = (requestId: string) => {
+    setSelectedCancelId(requestId);
+    setShowCancelDialog(true);
+  };
+
+  const handleCancelConfirm = () => {
+    if (selectedCancelId && onCancel) {
+      onCancel(selectedCancelId);
+      setRequests(prev => prev.filter(req => req.id !== selectedCancelId));
+      setShowCancelDialog(false);
+      setSelectedCancelId(null);
+      showToast('درخواست با موفقیت لغو شد', 'success');
+    }
+  };
+
+  if (!isOpen) return null;
+
   const hasActiveFilters = filterRequestType || filterStatus || filterIP || filterRequesterName || filterDepartment || filterDateFrom || filterDateTo;
+  const selectedCancelRequest = requests.find(r => r.id === selectedCancelId);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
+      <ConfirmDialog
+        isOpen={showCancelDialog}
+        title="لغو درخواست"
+        message={`آیا از لغو درخواست #${selectedCancelRequest?.id.split('-')[1]} مطمئن هستید؟ این عملیات غیرقابل بازگشت است و درخواست از تمام لیست‌ها حذف خواهد شد.`}
+        confirmText="بله، لغو کن"
+        cancelText="انصراف"
+        onConfirm={handleCancelConfirm}
+        onCancel={() => {
+          setShowCancelDialog(false);
+          setSelectedCancelId(null);
+        }}
+        type="cancel"
+      />
+      
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col animate-slide-down" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-[#3498db] to-[#2980b9] text-white p-4 rounded-t-lg flex justify-between items-center">
           <h2 id="history-modal-title" className="text-xl font-bold">تاریخچه درخواست‌ها</h2>
@@ -173,6 +218,9 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                 <option value="FILE_TRANSFER">فایل</option>
                 <option value="VDI_OPEN">VDI</option>
                 <option value="BACKUP">Backup</option>
+                <option value="TAPE">Tape</option>
+                <option value="USB_PORT">USB Port</option>
+                <option value="APP_INSTALL">نصب برنامه</option>
               </select>
             </div>
             
@@ -181,7 +229,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
               <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]">
                 <option value="">همه</option>
                 <option value="PENDING">در حال بررسی</option>
-                <option value="APPROVED">تایید شده</option>
                 <option value="REJECTED">رد شده</option>
                 <option value="COMPLETED">انجام شده</option>
               </select>
@@ -274,14 +321,17 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                       const isFileTransfer = request.requestType === RequestType.FILE_TRANSFER;
                       const isBackup = request.requestType === RequestType.BACKUP;
                       const isVDI = request.requestType === RequestType.VDI || request.requestType === 'VDI_OPEN';
+                      const isTape = request.requestType === RequestType.TAPE;
+                      const isUSBPort = request.requestType === RequestType.USB_PORT;
+                      const isAppInstall = request.requestType === RequestType.APP_INSTALL;
                       
                       return (
                         <React.Fragment key={request.id}>
                           <tr className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-blue-50' : 'bg-green-50'}`} onClick={() => toggleRow(request.id)}>
                             <td className="p-3 text-gray-800 font-semibold">#{request.id.split('-')[1]}</td>
                             <td className="p-3">
-                              <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
-                                {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : 'Backup'}
+                              <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : isTape ? 'bg-orange-100 text-orange-800' : isUSBPort ? 'bg-teal-100 text-teal-800' : isAppInstall ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
+                                {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : 'Backup'}
                               </span>
                             </td>
                             <td className="p-3 text-gray-700">{request.requesterName}</td>
@@ -302,6 +352,22 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                             <tr>
                               <td colSpan={7} className="p-4 bg-gray-50">
                                 <div className="space-y-4">
+                                  {/* دکمه انصراف برای requester */}
+                                  {canCancelRequest(request) && (
+                                    <div className="flex justify-end mb-4 pb-4 border-b border-dashed border-gray-300">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCancelClick(request.id);
+                                        }}
+                                        className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-all cursor-pointer font-medium shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                      >
+                                        <span>×</span>
+                                        <span>انصراف از درخواست</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                  
                                   {isFileTransfer && request.files && (
                                     <div className="space-y-3">
                                       {request.files.map((file, fileIndex) => {
@@ -310,7 +376,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                         
                                         return (
                                           <div key={file.id} className={`${fileBgClass} p-4 rounded border`}>
-                                            {/* فیلدهای اصلی - همیشه نمایش داده می‌شوند */}
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm mb-3">
                                               <div className="md:col-span-2"><strong className="text-gray-600">نام فایل:</strong> {file.fileName}</div>
                                               <div><strong className="text-gray-600">آدرس IP مبدا:</strong> {file.sourceIP}</div>
@@ -319,7 +384,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                               <div><strong className="text-gray-600">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
                                             </div>
                                             
-                                            {/* دکمه توضیحات بیشتر - فقط اگر باز نشده باشد */}
                                             {!isFileExpanded && (
                                               <button
                                                 onClick={(e) => {
@@ -333,7 +397,6 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                               </button>
                                             )}
                                             
-                                            {/* فیلدهای اضافی - فقط بعد از کلیک نمایش داده می‌شوند */}
                                             {isFileExpanded && (
                                               <div className="mt-3 pt-3 border-t border-gray-300">
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
@@ -398,6 +461,54 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                               <div><strong className="text-gray-600">آدرس مبدا:</strong> {vdi.sourceAddress || '—'}</div>
                                               <div><strong className="text-gray-600">آدرس مقصد:</strong> {vdi.destinationAddress || '—'}</div>
                                               <div className="md:col-span-2"><strong className="text-gray-600">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  
+                                  {isTape && request.tapes && (
+                                    <div className="space-y-3">
+                                      {request.tapes.map((tape, tapeIndex) => {
+                                        const tapeBgClass = tapeIndex % 2 === 0 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200';
+                                        return (
+                                          <div key={tape.id} className={`${tapeBgClass} p-4 rounded border`}>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                              <div><strong className="text-gray-600">IP سرور:</strong> {tape.serverIP}</div>
+                                              <div><strong className="text-gray-600">نام فایل:</strong> {tape.fileName}</div>
+                                              <div className="md:col-span-2"><strong className="text-gray-600">مسیر فایل:</strong> {tape.filePath}</div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  
+                                  {isUSBPort && request.usbPorts && (
+                                    <div className="space-y-3">
+                                      {request.usbPorts.map((usbPort, usbIndex) => {
+                                        const usbBgClass = usbIndex % 2 === 0 ? 'bg-teal-50 border-teal-200' : 'bg-cyan-50 border-cyan-200';
+                                        return (
+                                          <div key={usbPort.id} className={`${usbBgClass} p-4 rounded border`}>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                              <div><strong className="text-gray-600">IP سرور:</strong> {usbPort.serverIP}</div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  
+                                  {isAppInstall && request.appInstalls && (
+                                    <div className="space-y-3">
+                                      {request.appInstalls.map((appInstall, appIndex) => {
+                                        const appBgClass = appIndex % 2 === 0 ? 'bg-purple-50 border-purple-200' : 'bg-indigo-50 border-indigo-200';
+                                        return (
+                                          <div key={appInstall.id} className={`${appBgClass} p-4 rounded border`}>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                              <div><strong className="text-gray-600">IP سرور:</strong> {appInstall.serverIP}</div>
+                                              <div><strong className="text-gray-600">نام برنامه یا لینک:</strong> {appInstall.appNameOrLink}</div>
                                             </div>
                                           </div>
                                         );

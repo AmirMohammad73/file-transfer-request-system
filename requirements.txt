@@ -1,0 +1,94 @@
+-- ============================================
+-- Migration Script for Request Types and Roles
+-- ============================================
+-- این فایل شامل کوئری‌های SQL برای اضافه کردن انواع درخواست جدید است
+-- تاریخ: برای اضافه کردن TAPE_BACKUP و FLASH_DISK_BACKUP
+-- ============================================
+-- 
+-- توجه مهم: در PostgreSQL نمی‌توان مقادیر جدید را در یک transaction به enum اضافه کرد
+-- بنابراین باید هر ALTER TYPE را جداگانه و خارج از transaction اجرا کنید
+-- ============================================
+
+-- ============================================
+-- روش 1: اگر enum request_type از قبل وجود دارد
+-- ============================================
+-- این کوئری‌ها را یکی یکی و جداگانه اجرا کنید (نه در یک transaction)
+-- توجه: اگر مقدار از قبل وجود دارد، خطا می‌دهد که می‌توانید نادیده بگیرید
+
+-- کوئری 1: اضافه کردن TAPE (اگر TAPE_BACKUP از قبل وجود دارد، می‌توانید آن را حذف کنید)
+-- اگر خطای "already exists" دریافت کردید، نادیده بگیرید
+ALTER TYPE request_type ADD VALUE 'TAPE';
+
+-- کوئری 2: اضافه کردن USB_PORT (اگر FLASH_DISK_BACKUP از قبل وجود دارد، می‌توانید آن را حذف کنید)
+-- اگر خطای "already exists" دریافت کردید، نادیده بگیرید
+ALTER TYPE request_type ADD VALUE 'USB_PORT';
+
+-- کوئری 3: اضافه کردن APP_INSTALL
+-- اگر خطای "already exists" دریافت کردید، نادیده بگیرید
+ALTER TYPE request_type ADD VALUE 'APP_INSTALL';
+
+-- کوئری 4: اضافه کردن VDI_OPEN (اگر وجود ندارد)
+-- اگر خطای "already exists" دریافت کردید، نادیده بگیرید
+ALTER TYPE request_type ADD VALUE 'VDI_OPEN';
+
+-- ============================================
+-- روش 2: اگر enum request_type وجود ندارد
+-- ============================================
+-- اگر خطای "type request_type does not exist" دریافت کردید،
+-- ابتدا enum را ایجاد کنید:
+
+-- CREATE TYPE request_type AS ENUM (
+--     'FILE_TRANSFER',
+--     'BACKUP',
+--     'VDI_OPEN',
+--     'TAPE',
+--     'USB_PORT',
+--     'APP_INSTALL'
+-- );
+
+-- سپس اگر ستون request_type در جدول requests وجود ندارد، آن را اضافه کنید:
+-- ALTER TABLE requests 
+-- ADD COLUMN IF NOT EXISTS request_type request_type DEFAULT 'FILE_TRANSFER';
+
+-- اگر ستون request_type از نوع VARCHAR است، آن را به enum تبدیل کنید:
+-- ALTER TABLE requests 
+-- ALTER COLUMN request_type TYPE request_type 
+-- USING request_type::request_type;
+
+-- ============================================
+-- راهنمای اجرا:
+-- ============================================
+-- 1. به دیتابیس PostgreSQL متصل شوید:
+--    psql -U postgres -d postgres
+--
+-- 2. هر کوئری را جداگانه اجرا کنید (نه همه در یک transaction)
+--
+-- 3. یا در pgAdmin:
+--    Tools > Query Tool > هر کوئری را جداگانه اجرا کنید
+--
+-- 4. یا از طریق فایل:
+--    psql -U postgres -d postgres -f requirements.txt
+--    (اما توجه: ممکن است نیاز باشد هر ALTER TYPE را جداگانه اجرا کنید)
+-- ============================================
+
+-- ============================================
+-- اضافه کردن Role جدید NETWORK_USB_ADMIN
+-- ============================================
+-- این کوئری را برای اضافه کردن Role جدید به enum user_role اجرا کنید
+
+-- اضافه کردن NETWORK_USB_ADMIN به enum user_role
+ALTER TYPE user_role ADD VALUE 'NETWORK_USB_ADMIN';
+
+-- ============================================
+-- توجه: اگر enum user_role وجود ندارد، ابتدا آن را ایجاد کنید:
+-- ============================================
+-- CREATE TYPE user_role AS ENUM (
+--     'REQUESTER', 
+--     'GROUP_LEAD', 
+--     'DEPUTY', 
+--     'NETWORK_HEAD', 
+--     'NETWORK_ADMIN',
+--     'NETWORK_USB_ADMIN'
+-- );
+-- ============================================
+

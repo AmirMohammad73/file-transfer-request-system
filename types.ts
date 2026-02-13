@@ -4,6 +4,7 @@ export enum Role {
   DEPUTY = 'DEPUTY',
   NETWORK_HEAD = 'NETWORK_HEAD',
   NETWORK_ADMIN = 'NETWORK_ADMIN',
+  NETWORK_USB_ADMIN = 'NETWORK_USB_ADMIN',
 }
 
 export enum Status {
@@ -11,22 +12,26 @@ export enum Status {
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
   COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED', // وضعیت جدید برای درخواست‌های لغو شده
 }
 
 export enum RequestType {
-  FILE_TRANSFER = 'FILE_TRANSFER',  // فرم درخواست فایل از/به سرور
-  BACKUP = 'BACKUP',                // فرم درخواست تهیه Backup
-  VDI = 'VDI_OPEN',                 // فرم درخواست باز کردن VDI
+  FILE_TRANSFER = 'FILE_TRANSFER',
+  BACKUP = 'BACKUP',
+  VDI = 'VDI_OPEN',
+  TAPE = 'TAPE',
+  USB_PORT = 'USB_PORT',
+  APP_INSTALL = 'APP_INSTALL',
 }
 
 export interface FileDetail {
   id: string;
   fileName: string;
   fileContent: string;
-  sourceIP: string;           // آدرس IP مبدا
-  sourceFilePath: string;      // مسیر فایل مبدا
-  destinationIP: string;       // آدرس IP مقصد
-  destinationFilePath: string; // مسیر فایل مقصد
+  sourceIP: string;
+  sourceFilePath: string;
+  destinationIP: string;
+  destinationFilePath: string;
   fileFormat: string;
   recipient: string;
   letterNumber?: string;
@@ -35,20 +40,38 @@ export interface FileDetail {
 
 export interface BackupDetail {
   id: string;
-  serverIP: string;           // IP سرور
-  backupMethod: 'FULL' | 'INCREMENTAL';  // نحوه بکاپ گیری
-  storagePath?: string;        // مسیر نگهداری
-  schedule: string;            // زمان بندی
-  retentionPeriod: string;     // مدت زمان نگهداری
+  serverIP: string;
+  backupMethod: 'FULL' | 'INCREMENTAL';
+  storagePath?: string;
+  schedule: string;
+  retentionPeriod: string;
 }
 
 export interface VDIDetail {
   id: string;
-  transferMediaType?: string;  // نوع مدیای انتقال DATA (اختیاری)
-  fileOrFolderName?: string;   // نام فایل یا فولدر (اختیاری)
-  sourceAddress?: string;      // آدرس مبدا (اختیاری)
-  destinationAddress?: string; // آدرس مقصد (اختیاری)
-  serverOrSystemName: string;  // نام سرور/ سامانه (اجباری)
+  transferMediaType?: string;
+  fileOrFolderName?: string;
+  sourceAddress?: string;
+  destinationAddress?: string;
+  serverOrSystemName: string;
+}
+
+export interface TapeDetail {
+  id: string;
+  serverIP: string;
+  fileName: string;
+  filePath: string;
+}
+
+export interface USBPortDetail {
+  id: string;
+  serverIP: string;
+}
+
+export interface AppInstallDetail {
+  id: string;
+  serverIP: string;
+  appNameOrLink: string;
 }
 
 export interface Approval {
@@ -56,23 +79,32 @@ export interface Approval {
   approverName: string;
   status: Status.APPROVED | Status.REJECTED | Status.COMPLETED;
   date: string;
-  rejectionReason?: string;  // دلیل رد درخواست (اختیاری - فقط برای REJECTED)
+  rejectionReason?: string;
+  approvalNote?: string; // توضیحات اختیاری هنگام تایید
+  isFromPreviousVersion?: boolean; // برای نشان دادن تاییدهای نسخه قبلی
 }
 
 export interface Request {
   id: string;
   requesterName: string;
   department: string;
-  requestType: RequestType;    // نوع درخواست
-  files?: FileDetail[];        // برای FILE_TRANSFER
-  backups?: BackupDetail[];    // برای BACKUP
-  vdis?: VDIDetail[];          // برای VDI_OPEN
+  requestType: RequestType;
+  files?: FileDetail[];
+  backups?: BackupDetail[];
+  vdis?: VDIDetail[];
+  tapes?: TapeDetail[];
+  usbPorts?: USBPortDetail[];
+  appInstalls?: AppInstallDetail[];
   status: Status;
   approvalHistory: Approval[];
   currentApprover: Role | null;
   createdAt: string;
   requesterGroupId?: number;
-  rejectionReason?: string;    // دلیل رد کلی درخواست
+  rejectionReason?: string;
+  isRevised?: boolean; // آیا این درخواست اصلاح شده است؟
+  revisionCount?: number; // تعداد دفعات اصلاح
+  previousVersions?: Approval[][]; // تاریخچه تاییدهای نسخه‌های قبلی
+  requesterId?: number; // ID کاربر درخواست‌دهنده
 }
 
 export interface User {

@@ -1,32 +1,141 @@
-import React, { useState } from 'react';
-import { FileDetail, BackupDetail, VDIDetail, User, RequestType } from '../types';
+import React, { useState, useEffect } from 'react';
+import { FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, User, RequestType, Request } from '../types';
 import { PlusCircleIcon, SendIcon, Trash2Icon } from './icons';
 import { useToastContext } from './ToastContainer';
 
 interface RequestFormProps {
     currentUser: User;
-    onSubmit: (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[] }) => void;
+    onSubmit: (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[] }) => void;
+    initialData?: Request;
+    isEditing?: boolean;
 }
 
-const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
+const FORM_STORAGE_KEY = 'request_form_draft';
+
+const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initialData, isEditing = false }) => {
     const { showToast } = useToastContext();
-    const [requestType, setRequestType] = useState<RequestType>(RequestType.FILE_TRANSFER);
+    
+    // Load from localStorage or use initialData
+    const getSavedData = () => {
+        if (isEditing && initialData) {
+            return null; // Don't load from localStorage when editing
+        }
+        try {
+            const saved = localStorage.getItem(FORM_STORAGE_KEY);
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (e) {
+            console.error('Error loading form data from localStorage:', e);
+        }
+        return null;
+    };
+    
+    const savedData = getSavedData();
+    const [requestType, setRequestType] = useState<RequestType>(
+        initialData?.requestType || savedData?.requestType || RequestType.FILE_TRANSFER
+    );
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // State for File Transfer form
-    const [files, setFiles] = useState<FileDetail[]>([
-        { id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }
-    ]);
+    const [files, setFiles] = useState<FileDetail[]>(
+        initialData?.files || savedData?.files || [
+            { id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }
+        ]
+    );
 
     // State for Backup form
-    const [backups, setBackups] = useState<BackupDetail[]>([
-        { id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }
-    ]);
+    const [backups, setBackups] = useState<BackupDetail[]>(
+        initialData?.backups || savedData?.backups || [
+            { id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }
+        ]
+    );
 
     // State for VDI form
-    const [vdis, setVdis] = useState<VDIDetail[]>([
-        { id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }
-    ]);
+    const [vdis, setVdis] = useState<VDIDetail[]>(
+        initialData?.vdis || savedData?.vdis || [
+            { id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }
+        ]
+    );
+
+    // State for Tape form
+    const [tapes, setTapes] = useState<TapeDetail[]>(
+        initialData?.tapes || savedData?.tapes || [
+            { id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }
+        ]
+    );
+
+    // State for USB Port form
+    const [usbPorts, setUsbPorts] = useState<USBPortDetail[]>(
+        initialData?.usbPorts || savedData?.usbPorts || [
+            { id: `usb-${Date.now()}`, serverIP: '' }
+        ]
+    );
+
+    // State for App Install form
+    const [appInstalls, setAppInstalls] = useState<AppInstallDetail[]>(
+        initialData?.appInstalls || savedData?.appInstalls || [
+            { id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }
+        ]
+    );
+
+    // Save form data to localStorage whenever it changes
+    useEffect(() => {
+        if (isEditing || isSubmitting) return; // Don't save when editing or submitting
+        
+        const formData = {
+            requestType,
+            files: requestType === RequestType.FILE_TRANSFER ? files : undefined,
+            backups: requestType === RequestType.BACKUP ? backups : undefined,
+            vdis: (requestType === RequestType.VDI || requestType === 'VDI_OPEN') ? vdis : undefined,
+            tapes: requestType === RequestType.TAPE ? tapes : undefined,
+            usbPorts: requestType === RequestType.USB_PORT ? usbPorts : undefined,
+            appInstalls: requestType === RequestType.APP_INSTALL ? appInstalls : undefined,
+        };
+        
+        try {
+            localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formData));
+        } catch (e) {
+            console.error('Error saving form data to localStorage:', e);
+        }
+    }, [requestType, files, backups, vdis, tapes, usbPorts, appInstalls, isEditing, isSubmitting]);
+
+    // Update form when initialData changes
+    useEffect(() => {
+        if (initialData) {
+            setRequestType(initialData.requestType);
+            
+            // Set files with proper defaults
+            if (initialData.requestType === RequestType.FILE_TRANSFER && initialData.files && initialData.files.length > 0) {
+                setFiles(initialData.files);
+            }
+            
+            // Set backups with proper defaults
+            if (initialData.requestType === RequestType.BACKUP && initialData.backups && initialData.backups.length > 0) {
+                setBackups(initialData.backups);
+            }
+            
+            // Set VDIs with proper defaults
+            if ((initialData.requestType === RequestType.VDI || initialData.requestType === 'VDI_OPEN') && initialData.vdis && initialData.vdis.length > 0) {
+                setVdis(initialData.vdis);
+            }
+            
+            // Set tapes with proper defaults
+            if (initialData.requestType === RequestType.TAPE && initialData.tapes && initialData.tapes.length > 0) {
+                setTapes(initialData.tapes);
+            }
+            
+            // Set USB ports with proper defaults
+            if (initialData.requestType === RequestType.USB_PORT && initialData.usbPorts && initialData.usbPorts.length > 0) {
+                setUsbPorts(initialData.usbPorts);
+            }
+            
+            // Set app installs with proper defaults
+            if (initialData.requestType === RequestType.APP_INSTALL && initialData.appInstalls && initialData.appInstalls.length > 0) {
+                setAppInstalls(initialData.appInstalls);
+            }
+        }
+    }, [initialData]);
 
     const handleFileChange = (index: number, field: keyof FileDetail, value: string) => {
         const newFiles = [...files];
@@ -75,6 +184,24 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
         setVdis(newVdis);
     };
 
+    const handleTapeChange = (index: number, field: keyof TapeDetail, value: string) => {
+        const newTapes = [...tapes];
+        newTapes[index] = { ...newTapes[index], [field]: value };
+        setTapes(newTapes);
+    };
+
+    const handleUSBPortChange = (index: number, field: keyof USBPortDetail, value: string) => {
+        const newUsbPorts = [...usbPorts];
+        newUsbPorts[index] = { ...newUsbPorts[index], [field]: value };
+        setUsbPorts(newUsbPorts);
+    };
+
+    const handleAppInstallChange = (index: number, field: keyof AppInstallDetail, value: string) => {
+        const newAppInstalls = [...appInstalls];
+        newAppInstalls[index] = { ...newAppInstalls[index], [field]: value };
+        setAppInstalls(newAppInstalls);
+    };
+
     const addFile = () => {
         setFiles([
             ...files,
@@ -117,6 +244,54 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
     const removeVdi = (id: string) => {
         if (vdis.length > 1) {
             setVdis(vdis.filter(vdi => vdi.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
+        } else {
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
+        }
+    };
+
+    const addTape = () => {
+        setTapes([
+            ...tapes,
+            { id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }
+        ]);
+    };
+
+    const removeTape = (id: string) => {
+        if (tapes.length > 1) {
+            setTapes(tapes.filter(tape => tape.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
+        } else {
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
+        }
+    };
+
+    const addUSBPort = () => {
+        setUsbPorts([
+            ...usbPorts,
+            { id: `usb-${Date.now()}`, serverIP: '' }
+        ]);
+    };
+
+    const removeUSBPort = (id: string) => {
+        if (usbPorts.length > 1) {
+            setUsbPorts(usbPorts.filter(port => port.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
+        } else {
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
+        }
+    };
+
+    const addAppInstall = () => {
+        setAppInstalls([
+            ...appInstalls,
+            { id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }
+        ]);
+    };
+
+    const removeAppInstall = (id: string) => {
+        if (appInstalls.length > 1) {
+            setAppInstalls(appInstalls.filter(app => app.id !== id));
             showToast('رکورد با موفقیت حذف شد', 'success');
         } else {
             showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
@@ -173,14 +348,71 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                     }
                 }
                 onSubmit({ type: RequestType.VDI, vdis });
+            } else if (requestType === RequestType.TAPE) {
+                // Validation for Tape
+                for (const tape of tapes) {
+                    if (!tape.serverIP || !tape.serverIP.trim()) {
+                        showToast('لطفاً فیلد "IP سرور" را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (!tape.fileName || !tape.fileName.trim()) {
+                        showToast('لطفاً فیلد "نام فایل" را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (!tape.filePath || !tape.filePath.trim()) {
+                        showToast('لطفاً فیلد "مسیر فایل" را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.TAPE, tapes });
+            } else if (requestType === RequestType.USB_PORT) {
+                // Validation for USB Port
+                for (const usbPort of usbPorts) {
+                    if (!usbPort.serverIP || !usbPort.serverIP.trim()) {
+                        showToast('لطفاً فیلد "IP سرور" را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.USB_PORT, usbPorts });
+            } else if (requestType === RequestType.APP_INSTALL) {
+                // Validation for App Install
+                for (const appInstall of appInstalls) {
+                    if (!appInstall.serverIP || !appInstall.serverIP.trim()) {
+                        showToast('لطفاً فیلد "IP سرور" را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (!appInstall.appNameOrLink || !appInstall.appNameOrLink.trim()) {
+                        showToast('لطفاً فیلد "نام برنامه یا لینک" را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.APP_INSTALL, appInstalls });
+            }
+            
+            // Clear localStorage after successful submit
+            try {
+                localStorage.removeItem(FORM_STORAGE_KEY);
+            } catch (e) {
+                console.error('Error clearing form data from localStorage:', e);
             }
             
             showToast('درخواست با موفقیت ارسال شد', 'success');
             
-            // Reset form
-            setFiles([{ id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }]);
-            setBackups([{ id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }]);
-            setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }]);
+            // Reset form only if not editing
+            if (!isEditing) {
+                setFiles([{ id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }]);
+                setBackups([{ id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }]);
+                setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }]);
+                setTapes([{ id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }]);
+                setUsbPorts([{ id: `usb-${Date.now()}`, serverIP: '' }]);
+                setAppInstalls([{ id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }]);
+            }
         } catch (error) {
             showToast('خطا در ارسال درخواست. لطفاً دوباره تلاش کنید.', 'error');
         } finally {
@@ -226,6 +458,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                     <option value={RequestType.FILE_TRANSFER}>فرم درخواست فایل از/به سرور (کد مدرک: NS-F-04-01)</option>
                     <option value={RequestType.BACKUP}>فرم درخواست تهیه Backup (کد مدرک: NS-F-05-01)</option>
                     <option value={RequestType.VDI}>فرم درخواست باز کردن VDI (کد مدرک: NS-F-01-01)</option>
+                    <option value={RequestType.TAPE}>فرم درخواست تهیه پشتیبان از Tape</option>
+                    <option value={RequestType.USB_PORT}>فرم باز کردن USB Port</option>
+                    <option value={RequestType.APP_INSTALL}>نصب برنامه</option>
                 </select>
             </div>
 
@@ -591,6 +826,198 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
                     </button>
                 </div>
             )}
+
+            {/* Tape Form */}
+            {requestType === RequestType.TAPE && (
+                <div id="tape-container" className="space-y-5">
+                    {tapes.map((tape, index) => (
+                        <div key={tape.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-[#e67e22] text-white px-3 py-1 text-sm font-bold rounded shadow-md">مشخصات Tape</div>
+                            <div className="flex justify-between items-center mt-3 mb-4">
+                                <div className="text-sm font-semibold text-gray-500">مشخصات Tape {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {tapes.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeTape(tape.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                            aria-label={`حذف رکورد ${index + 1}`}
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2">
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        IP سرور <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={tape.serverIP} 
+                                        onChange={e => handleTapeChange(index, 'serverIP', e.target.value)} 
+                                        placeholder="مثال: 192.168.1.100 یا توضیحات مربوط به سرور" 
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#e67e22]" 
+                                        required 
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        نام فایل <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={tape.fileName} 
+                                        onChange={e => handleTapeChange(index, 'fileName', e.target.value)} 
+                                        placeholder="مثال: backup_2024.tar.gz" 
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#e67e22]" 
+                                        required 
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        مسیر فایل <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={tape.filePath} 
+                                        onChange={e => handleTapeChange(index, 'filePath', e.target.value)} 
+                                        placeholder="مثال: /var/backup/tape/backup_2024.tar.gz" 
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#e67e22]" 
+                                        required 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={addTape}
+                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#e67e22] rounded-lg text-[#e67e22] font-semibold hover:bg-orange-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#e67e22] focus:ring-offset-2"
+                        aria-label="افزودن رکورد جدید"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        <span>افزودن رکورد جدید</span>
+                    </button>
+                </div>
+            )}
+
+            {/* USB Port Form */}
+            {requestType === RequestType.USB_PORT && (
+                <div id="usb-port-container" className="space-y-5">
+                    {usbPorts.map((usbPort, index) => (
+                        <div key={usbPort.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-[#16a085] text-white px-3 py-1 text-sm font-bold rounded shadow-md">مشخصات USB Port</div>
+                            <div className="flex justify-between items-center mt-3 mb-4">
+                                <div className="text-sm font-semibold text-gray-500">مشخصات USB Port {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {usbPorts.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeUSBPort(usbPort.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                            aria-label={`حذف رکورد ${index + 1}`}
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2">
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        IP سرور <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={usbPort.serverIP} 
+                                        onChange={e => handleUSBPortChange(index, 'serverIP', e.target.value)} 
+                                        placeholder="مثال: 192.168.1.100 یا توضیحات مربوط به سرور"
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#16a085]" 
+                                        required
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={addUSBPort}
+                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#16a085] rounded-lg text-[#16a085] font-semibold hover:bg-teal-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#16a085] focus:ring-offset-2"
+                        aria-label="افزودن رکورد جدید"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        <span>افزودن رکورد جدید</span>
+                    </button>
+                </div>
+            )}
+
+            {/* App Install Form */}
+            {requestType === RequestType.APP_INSTALL && (
+                <div id="app-install-container" className="space-y-5">
+                    {appInstalls.map((appInstall, index) => (
+                        <div key={appInstall.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-[#8e44ad] text-white px-3 py-1 text-sm font-bold rounded shadow-md">مشخصات نصب برنامه</div>
+                            <div className="flex justify-between items-center mt-3 mb-4">
+                                <div className="text-sm font-semibold text-gray-500">مشخصات نصب برنامه {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {appInstalls.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeAppInstall(appInstall.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                            aria-label={`حذف رکورد ${index + 1}`}
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        IP سرور <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={appInstall.serverIP} 
+                                        onChange={e => handleAppInstallChange(index, 'serverIP', e.target.value)} 
+                                        placeholder="مثال: 192.168.1.100 یا توضیحات مربوط به سرور"
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#8e44ad]" 
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        نام برنامه یا لینک <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={appInstall.appNameOrLink} 
+                                        onChange={e => handleAppInstallChange(index, 'appNameOrLink', e.target.value)} 
+                                        placeholder="مثال: Chrome یا https://example.com/app.exe"
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#8e44ad]" 
+                                        required
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={addAppInstall}
+                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#8e44ad] rounded-lg text-[#8e44ad] font-semibold hover:bg-purple-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#8e44ad] focus:ring-offset-2"
+                        aria-label="افزودن رکورد جدید"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        <span>افزودن رکورد جدید</span>
+                    </button>
+                </div>
+            )}
             
             <div className="flex justify-center mt-8">
                 <button 
@@ -614,6 +1041,6 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit }) => {
             </div>
         </div>
     );
-};
+}
 
 export default RequestForm;

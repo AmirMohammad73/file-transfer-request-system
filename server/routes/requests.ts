@@ -10,12 +10,16 @@ function getApprovalHierarchy(requestType: string): string[] {
     return ['GROUP_LEAD', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   } else if (requestType === 'VDI_OPEN') {
     return ['DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
+  } else if (requestType === 'USB_PORT') {
+    return ['GROUP_LEAD', 'DEPUTY', 'NETWORK_HEAD', 'NETWORK_USB_ADMIN'];
+  } else if (requestType === 'TAPE' || requestType === 'APP_INSTALL') {
+    return ['GROUP_LEAD', 'DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   } else {
     return ['GROUP_LEAD', 'DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   }
 }
 
-// Get all requests (filtered based on user role)
+// Get all requests (filtered based on user role) - NOT CANCELLED
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
@@ -45,19 +49,23 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         r.approval_history,
         r.rejection_reason,
         r.created_at,
+        r.is_revised,
+        r.revision_count,
+        r.previous_versions,
         u.group_ids as requester_group_ids
       FROM requests r
       LEFT JOIN req_users u ON r.requester_id = u.id
+      WHERE r.status != 'CANCELLED'
     `;
 
     const params: any[] = [];
     let paramCount = 0;
 
     if (user.role === 'REQUESTER') {
-      query += ` WHERE r.requester_id = $${++paramCount}`;
+      query += ` AND r.requester_id = $${++paramCount}`;
       params.push(userId);
     } else {
-      query += ` WHERE r.status = 'PENDING' AND r.current_approver = $${++paramCount}`;
+      query += ` AND r.status = 'PENDING' AND r.current_approver = $${++paramCount}`;
       params.push(user.role);
       
       if (!userGroupIds.includes(0)) {
@@ -87,6 +95,10 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         ? JSON.parse(row.approval_history)
         : (Array.isArray(row.approval_history) ? row.approval_history : []);
 
+      const previousVersionsData = row.previous_versions 
+        ? (typeof row.previous_versions === 'string' ? JSON.parse(row.previous_versions) : row.previous_versions)
+        : [];
+
       const baseRequest: any = {
         id: row.id,
         requesterName: row.requester_name,
@@ -98,6 +110,10 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         rejectionReason: row.rejection_reason,
         createdAt: row.created_at,
         requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
+        requesterId: row.requester_id,
+        isRevised: row.is_revised || false,
+        revisionCount: row.revision_count || 0,
+        previousVersions: previousVersionsData,
       };
 
       if (row.request_type === 'FILE_TRANSFER') {
@@ -106,6 +122,12 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         baseRequest.backups = filesData;
       } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
         baseRequest.vdis = filesData;
+      } else if (row.request_type === 'TAPE') {
+        baseRequest.tapes = filesData;
+      } else if (row.request_type === 'USB_PORT') {
+        baseRequest.usbPorts = filesData;
+      } else if (row.request_type === 'APP_INSTALL') {
+        baseRequest.appInstalls = filesData;
       }
 
       return baseRequest;
@@ -118,11 +140,105 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
+// Get rejected requests for requester
+router.get('/rejected', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
 
-// این کد جایگزین endpoint فعلی /history می‌شود
-// در فایل server/routes/requests.ts
+    const userResult = await pool.query(
+      'SELECT role FROM req_users WHERE id = $1',
+      [userId]
+    );
 
-// Get request history - نمایش کامل درخواست‌های گروهی با پشتیبانی از NETWORK_HEAD و NETWORK_ADMIN
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'کاربر یافت نشد' });
+    }
+
+    const user = userResult.rows[0];
+
+    if (user.role !== 'REQUESTER') {
+      return res.status(403).json({ error: 'فقط کاربران درخواست‌دهنده می‌توانند درخواست‌های رد شده را ببینند' });
+    }
+
+    const result = await pool.query(
+      `SELECT 
+        r.id,
+        r.requester_id,
+        r.requester_name,
+        r.department,
+        r.request_type,
+        r.files,
+        r.status,
+        r.current_approver,
+        r.approval_history,
+        r.rejection_reason,
+        r.created_at,
+        r.is_revised,
+        r.revision_count,
+        r.previous_versions,
+        u.group_ids as requester_group_ids
+      FROM requests r
+      LEFT JOIN req_users u ON r.requester_id = u.id
+      WHERE r.requester_id = $1 AND r.status = 'REJECTED'
+      ORDER BY r.created_at DESC`,
+      [userId]
+    );
+
+    const requests = result.rows.map((row) => {
+      const filesData = typeof row.files === 'string' 
+        ? JSON.parse(row.files) 
+        : (Array.isArray(row.files) ? row.files : null);
+      
+      const approvalHistoryData = typeof row.approval_history === 'string'
+        ? JSON.parse(row.approval_history)
+        : (Array.isArray(row.approval_history) ? row.approval_history : []);
+
+      const previousVersionsData = row.previous_versions 
+        ? (typeof row.previous_versions === 'string' ? JSON.parse(row.previous_versions) : row.previous_versions)
+        : [];
+
+      const baseRequest: any = {
+        id: row.id,
+        requesterName: row.requester_name,
+        department: row.department,
+        requestType: row.request_type,
+        status: row.status,
+        currentApprover: row.current_approver,
+        approvalHistory: approvalHistoryData,
+        rejectionReason: row.rejection_reason,
+        createdAt: row.created_at,
+        requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
+        requesterId: row.requester_id,
+        isRevised: row.is_revised || false,
+        revisionCount: row.revision_count || 0,
+        previousVersions: previousVersionsData,
+      };
+
+      if (row.request_type === 'FILE_TRANSFER') {
+        baseRequest.files = filesData;
+      } else if (row.request_type === 'BACKUP') {
+        baseRequest.backups = filesData;
+      } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
+        baseRequest.vdis = filesData;
+      } else if (row.request_type === 'TAPE') {
+        baseRequest.tapes = filesData;
+      } else if (row.request_type === 'USB_PORT') {
+        baseRequest.usbPorts = filesData;
+      } else if (row.request_type === 'APP_INSTALL') {
+        baseRequest.appInstalls = filesData;
+      }
+
+      return baseRequest;
+    });
+
+    res.json(requests);
+  } catch (error: any) {
+    console.error('Get rejected requests error:', error);
+    res.status(500).json({ error: 'خطا در دریافت درخواست‌های رد شده' });
+  }
+});
+
+// Get request history - فیلتر می‌کنیم که CANCELLED نباشد
 router.get('/history', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
@@ -154,25 +270,22 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         r.approval_history,
         r.rejection_reason,
         r.created_at,
+        r.is_revised,
+        r.revision_count,
+        r.previous_versions,
         u.group_ids as requester_group_ids
       FROM requests r
       LEFT JOIN req_users u ON r.requester_id = u.id
-      WHERE (
+      WHERE r.status != 'CANCELLED' AND (
     `;
 
     const conditions: string[] = [];
     const params: any[] = [];
     let paramCount = 0;
 
-    // ===============================================
-    // شرط 1: درخواست‌های خود کاربر (اگر REQUESTER است)
-    // ===============================================
     conditions.push(`r.requester_id = $${++paramCount}`);
     params.push(userId);
 
-    // ===============================================
-    // شرط 2: درخواست‌هایی که این کاربر شخصاً در آنها عمل کرده
-    // ===============================================
     conditions.push(`
       EXISTS (
         SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
@@ -181,13 +294,8 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     `);
     params.push(userName);
 
-    // ===============================================
-    // شرط 3: درخواست‌های گروهی
-    // ===============================================
-    
     if (userRole !== 'REQUESTER') {
-      // برای NETWORK_HEAD و NETWORK_ADMIN: فقط Role چک می‌شود
-      if (userRole === 'NETWORK_HEAD' || userRole === 'NETWORK_ADMIN') {
+      if (userRole === 'NETWORK_HEAD' || userRole === 'NETWORK_ADMIN' || userRole === 'NETWORK_USB_ADMIN') {
         conditions.push(`
           EXISTS (
             SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
@@ -195,15 +303,11 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
           )
         `);
         params.push(userRole);
-      } 
-      // برای سایر نقش‌ها: هم گروه و هم Role چک می‌شود
-      else if (userGroupIds.length > 0 && !userGroupIds.includes(0)) {
+      } else if (userGroupIds.length > 0 && !userGroupIds.includes(0)) {
         conditions.push(`
           (
-            -- requester در یکی از گروه‌های مشترک با این کاربر است
             u.group_ids && $${++paramCount}::integer[]
             AND
-            -- و درخواست توسط کسی با همان Role این کاربر پردازش شده
             EXISTS (
               SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
               WHERE elem->>'approverRole' = $${++paramCount}
@@ -220,12 +324,6 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
       ORDER BY r.created_at DESC
     `;
 
-    console.log('=== History Query Debug ===');
-    console.log('User:', userName, '| Role:', userRole, '| Groups:', userGroupIds);
-    console.log('Query:', query);
-    console.log('Params:', params);
-    console.log('===========================');
-
     const result = await pool.query(query, params);
 
     const requests = result.rows.map((row) => {
@@ -236,6 +334,10 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
       const approvalHistoryData = typeof row.approval_history === 'string'
         ? JSON.parse(row.approval_history)
         : (Array.isArray(row.approval_history) ? row.approval_history : []);
+
+      const previousVersionsData = row.previous_versions 
+        ? (typeof row.previous_versions === 'string' ? JSON.parse(row.previous_versions) : row.previous_versions)
+        : [];
 
       const result: any = {
         id: row.id,
@@ -248,6 +350,10 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         rejectionReason: row.rejection_reason,
         createdAt: row.created_at,
         requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
+        requesterId: row.requester_id,
+        isRevised: row.is_revised || false,
+        revisionCount: row.revision_count || 0,
+        previousVersions: previousVersionsData,
       };
 
       if (row.request_type === 'FILE_TRANSFER') {
@@ -256,12 +362,16 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         result.backups = filesData;
       } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
         result.vdis = filesData;
+      } else if (row.request_type === 'TAPE') {
+        result.tapes = filesData;
+      } else if (row.request_type === 'USB_PORT') {
+        result.usbPorts = filesData;
+      } else if (row.request_type === 'APP_INSTALL') {
+        result.appInstalls = filesData;
       }
 
       return result;
     });
-
-    console.log(`Found ${requests.length} requests for user ${userName}`);
 
     res.json(requests);
   } catch (error: any) {
@@ -269,11 +379,12 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     res.status(500).json({ error: 'خطا در دریافت تاریخچه' });
   }
 });
+
 // Create new request
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { type, files, backups, vdis } = req.body;
+    const { type, files, backups, vdis, tapes, usbPorts, appInstalls } = req.body;
 
     if (!type) {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
@@ -296,10 +407,25 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'حداقل یک مشخصات VDI الزامی است' });
       }
       dataToStore = vdis;
+    } else if (type === 'TAPE') {
+      if (!tapes || !Array.isArray(tapes) || tapes.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات Tape الزامی است' });
+      }
+      dataToStore = tapes;
+    } else if (type === 'USB_PORT') {
+      if (!usbPorts || !Array.isArray(usbPorts) || usbPorts.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات USB Port الزامی است' });
+      }
+      dataToStore = usbPorts;
+    } else if (type === 'APP_INSTALL') {
+      if (!appInstalls || !Array.isArray(appInstalls) || appInstalls.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات نصب برنامه الزامی است' });
+      }
+      dataToStore = appInstalls;
     }
 
     const userResult = await pool.query(
-      'SELECT name, department, group_ids FROM req_users WHERE id = $1',
+      'SELECT name, department, group_ids, role FROM req_users WHERE id = $1',
       [userId]
     );
 
@@ -309,10 +435,20 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     const user = userResult.rows[0];
 
-    // ============================================================
-    // تولید ID صحیح - بر اساس بزرگترین ID موجود
-    // ============================================================
-    
+    // بررسی اینکه آیا کاربر درخواست رد شده دارد؟
+    if (user.role === 'REQUESTER') {
+      const rejectedCheck = await pool.query(
+        'SELECT COUNT(*) as count FROM requests WHERE requester_id = $1 AND status = $2',
+        [userId, 'REJECTED']
+      );
+
+      if (parseInt(rejectedCheck.rows[0].count) > 0) {
+        return res.status(400).json({ 
+          error: 'شما درخواست‌های رد شده دارید که باید ابتدا آن‌ها را تعیین تکلیف کنید'
+        });
+      }
+    }
+
     const maxIdResult = await pool.query(`
       SELECT id FROM requests 
       WHERE id ~ '^req-[0-9]+$'
@@ -331,24 +467,15 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     const requestId = `req-${String(nextNumber).padStart(3, '0')}`;
 
-    console.log(`=== Creating new request ===`);
-    console.log(`User: ${user.name}`);
-    console.log(`Type: ${type}`);
-    console.log(`Generated ID: ${requestId}`);
-    console.log(`===========================`);
-
-    // ============================================================
-    // ادامه منطق insert
-    // ============================================================
-
     const hierarchy = getApprovalHierarchy(type);
     const firstApprover = hierarchy[0];
 
     const insertResult = await pool.query(
       `INSERT INTO requests (
         id, requester_id, requester_name, department, request_type, files,
-        status, current_approver, approval_history, rejection_reason
-      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10)
+        status, current_approver, approval_history, rejection_reason,
+        is_revised, revision_count, previous_versions
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb)
       RETURNING *`,
       [
         requestId,
@@ -361,6 +488,9 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         firstApprover,
         '[]',
         null,
+        false,
+        0,
+        '[]',
       ]
     );
 
@@ -389,6 +519,10 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       rejectionReason: row.rejection_reason,
       createdAt: row.created_at,
       requesterGroupId: requesterGroupId,
+      requesterId: row.requester_id,
+      isRevised: row.is_revised || false,
+      revisionCount: row.revision_count || 0,
+      previousVersions: [],
     };
 
     if (row.request_type === 'FILE_TRANSFER') {
@@ -397,13 +531,18 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       request.backups = filesData;
     } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
       request.vdis = filesData;
+    } else if (row.request_type === 'TAPE') {
+      request.tapes = filesData;
+    } else if (row.request_type === 'USB_PORT') {
+      request.usbPorts = filesData;
+    } else if (row.request_type === 'APP_INSTALL') {
+      request.appInstalls = filesData;
     }
 
     res.status(201).json(request);
   } catch (error: any) {
     console.error('Create request error:', error);
     
-    // بررسی خطای ID تکراری
     if (error.code === '23505') {
       return res.status(409).json({ 
         error: 'شماره درخواست تکراری است. لطفاً دوباره تلاش کنید.',
@@ -418,8 +557,248 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
+// Cancel request - فقط توسط requester
+router.put('/:id/cancel', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const requestId = req.params.id;
+
+    const requestResult = await pool.query(
+      'SELECT * FROM requests WHERE id = $1',
+      [requestId]
+    );
+
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'درخواست یافت نشد' });
+    }
+
+    const request = requestResult.rows[0];
+
+    // فقط requester می‌تواند درخواست را لغو کند
+    if (request.requester_id !== userId) {
+      return res.status(403).json({ error: 'فقط درخواست‌دهنده می‌تواند درخواست را لغو کند' });
+    }
+
+    // اگر درخواست COMPLETED شده باشد، نمی‌توان لغو کرد
+    if (request.status === 'COMPLETED') {
+      return res.status(400).json({ error: 'درخواست تکمیل شده قابل لغو نیست' });
+    }
+
+    // اگر قبلاً لغو شده باشد
+    if (request.status === 'CANCELLED') {
+      return res.status(400).json({ error: 'این درخواست قبلاً لغو شده است' });
+    }
+
+    const updateResult = await pool.query(
+      `UPDATE requests 
+       SET status = 'CANCELLED', 
+           current_approver = NULL
+       WHERE id = $1
+       RETURNING *`,
+      [requestId]
+    );
+
+    const updatedRequest = updateResult.rows[0];
+    
+    const filesData = updatedRequest.files ? (typeof updatedRequest.files === 'string' ? JSON.parse(updatedRequest.files) : updatedRequest.files) : null;
+    const approvalHistoryData = typeof updatedRequest.approval_history === 'string'
+      ? JSON.parse(updatedRequest.approval_history)
+      : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
+
+    const result: any = {
+      id: updatedRequest.id,
+      requesterName: updatedRequest.requester_name,
+      department: updatedRequest.department,
+      requestType: updatedRequest.request_type,
+      status: updatedRequest.status,
+      currentApprover: updatedRequest.current_approver,
+      approvalHistory: approvalHistoryData,
+      rejectionReason: updatedRequest.rejection_reason,
+      createdAt: updatedRequest.created_at,
+      requesterId: updatedRequest.requester_id,
+    };
+
+    if (updatedRequest.request_type === 'FILE_TRANSFER') {
+      result.files = filesData;
+    } else if (updatedRequest.request_type === 'BACKUP') {
+      result.backups = filesData;
+    } else if (updatedRequest.request_type === 'VDI' || updatedRequest.request_type === 'VDI_OPEN') {
+      result.vdis = filesData;
+    } else if (updatedRequest.request_type === 'TAPE') {
+      result.tapes = filesData;
+    } else if (updatedRequest.request_type === 'USB_PORT') {
+      result.usbPorts = filesData;
+    } else if (updatedRequest.request_type === 'APP_INSTALL') {
+      result.appInstalls = filesData;
+    }
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('Cancel request error:', error);
+    res.status(500).json({ error: 'خطا در لغو درخواست' });
+  }
+});
+
+// Revise request - فقط توسط requester برای درخواست‌های REJECTED
+router.put('/:id/revise', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const requestId = req.params.id;
+    const { type, files, backups, vdis, tapes, usbPorts, appInstalls } = req.body;
+
+    if (!type) {
+      return res.status(400).json({ error: 'نوع درخواست الزامی است' });
+    }
+
+    let dataToStore: any[] | null = null;
+    
+    if (type === 'FILE_TRANSFER') {
+      if (!files || !Array.isArray(files) || files.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک فایل الزامی است' });
+      }
+      dataToStore = files;
+    } else if (type === 'BACKUP') {
+      if (!backups || !Array.isArray(backups) || backups.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات backup الزامی است' });
+      }
+      dataToStore = backups;
+    } else if (type === 'VDI' || type === 'VDI_OPEN') {
+      if (!vdis || !Array.isArray(vdis) || vdis.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات VDI الزامی است' });
+      }
+      dataToStore = vdis;
+    } else if (type === 'TAPE') {
+      if (!tapes || !Array.isArray(tapes) || tapes.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات Tape الزامی است' });
+      }
+      dataToStore = tapes;
+    } else if (type === 'USB_PORT') {
+      if (!usbPorts || !Array.isArray(usbPorts) || usbPorts.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات USB Port الزامی است' });
+      }
+      dataToStore = usbPorts;
+    } else if (type === 'APP_INSTALL') {
+      if (!appInstalls || !Array.isArray(appInstalls) || appInstalls.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات نصب برنامه الزامی است' });
+      }
+      dataToStore = appInstalls;
+    }
+
+    const requestResult = await pool.query(
+      'SELECT * FROM requests WHERE id = $1',
+      [requestId]
+    );
+
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'درخواست یافت نشد' });
+    }
+
+    const request = requestResult.rows[0];
+
+    // فقط requester می‌تواند درخواست را اصلاح کند
+    if (request.requester_id !== userId) {
+      return res.status(403).json({ error: 'فقط درخواست‌دهنده می‌تواند درخواست را اصلاح کند' });
+    }
+
+    // فقط درخواست‌های REJECTED قابل اصلاح هستند
+    if (request.status !== 'REJECTED') {
+      return res.status(400).json({ error: 'فقط درخواست‌های رد شده قابل اصلاح هستند' });
+    }
+
+    // ذخیره approval history فعلی در previous_versions
+    let previousVersions = request.previous_versions 
+      ? (typeof request.previous_versions === 'string' ? JSON.parse(request.previous_versions) : request.previous_versions)
+      : [];
+
+    const currentApprovalHistory = typeof request.approval_history === 'string'
+      ? JSON.parse(request.approval_history)
+      : (Array.isArray(request.approval_history) ? request.approval_history : []);
+
+    // علامت‌گذاری approval history فعلی به عنوان نسخه قبلی
+    const markedHistory = currentApprovalHistory.map((approval: any) => ({
+      ...approval,
+      isFromPreviousVersion: true
+    }));
+
+    previousVersions.push(markedHistory);
+
+    // شروع مجدد فرآیند تایید
+    const hierarchy = getApprovalHierarchy(type);
+    const firstApprover = hierarchy[0];
+
+    const updateResult = await pool.query(
+      `UPDATE requests 
+       SET files = $1::jsonb,
+           status = 'PENDING',
+           current_approver = $2,
+           approval_history = '[]'::jsonb,
+           rejection_reason = NULL,
+           is_revised = TRUE,
+           revision_count = revision_count + 1,
+           previous_versions = $3::jsonb,
+           request_type = $4
+       WHERE id = $5
+       RETURNING *`,
+      [
+        JSON.stringify(dataToStore),
+        firstApprover,
+        JSON.stringify(previousVersions),
+        type,
+        requestId
+      ]
+    );
+
+    const updatedRequest = updateResult.rows[0];
+    
+    const filesData = updatedRequest.files ? (typeof updatedRequest.files === 'string' ? JSON.parse(updatedRequest.files) : updatedRequest.files) : null;
+    const approvalHistoryData = typeof updatedRequest.approval_history === 'string'
+      ? JSON.parse(updatedRequest.approval_history)
+      : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
+
+    const previousVersionsData = updatedRequest.previous_versions 
+      ? (typeof updatedRequest.previous_versions === 'string' ? JSON.parse(updatedRequest.previous_versions) : updatedRequest.previous_versions)
+      : [];
+
+    const result: any = {
+      id: updatedRequest.id,
+      requesterName: updatedRequest.requester_name,
+      department: updatedRequest.department,
+      requestType: updatedRequest.request_type,
+      status: updatedRequest.status,
+      currentApprover: updatedRequest.current_approver,
+      approvalHistory: approvalHistoryData,
+      rejectionReason: updatedRequest.rejection_reason,
+      createdAt: updatedRequest.created_at,
+      requesterId: updatedRequest.requester_id,
+      isRevised: updatedRequest.is_revised || false,
+      revisionCount: updatedRequest.revision_count || 0,
+      previousVersions: previousVersionsData,
+    };
+
+    if (updatedRequest.request_type === 'FILE_TRANSFER') {
+      result.files = filesData;
+    } else if (updatedRequest.request_type === 'BACKUP') {
+      result.backups = filesData;
+    } else if (updatedRequest.request_type === 'VDI' || updatedRequest.request_type === 'VDI_OPEN') {
+      result.vdis = filesData;
+    } else if (updatedRequest.request_type === 'TAPE') {
+      result.tapes = filesData;
+    } else if (updatedRequest.request_type === 'USB_PORT') {
+      result.usbPorts = filesData;
+    } else if (updatedRequest.request_type === 'APP_INSTALL') {
+      result.appInstalls = filesData;
+    }
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('Revise request error:', error);
+    res.status(500).json({ error: 'خطا در اصلاح درخواست' });
+  }
+});
+
 // Approve request
 router.put('/:id/approve', authenticateToken, async (req: Request, res: Response) => {
+  const { approvalNote } = req.body;
   try {
     const userId = (req as any).userId;
     const requestId = req.params.id;
@@ -477,12 +856,16 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
     const currentIndex = hierarchy.indexOf(user.role);
     const isLast = currentIndex === hierarchy.length - 1;
 
-    const newApproval = {
+    const newApproval: any = {
       approverRole: user.role,
       approverName: user.name,
       status: isLast ? 'COMPLETED' : 'APPROVED',
       date: new Date().toISOString(),
     };
+    
+    if (approvalNote && approvalNote.trim()) {
+      newApproval.approvalNote = approvalNote.trim();
+    }
 
     approvalHistory.push(newApproval);
 
@@ -508,6 +891,10 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       ? JSON.parse(updatedRequest.approval_history)
       : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
 
+    const previousVersionsData = updatedRequest.previous_versions 
+      ? (typeof updatedRequest.previous_versions === 'string' ? JSON.parse(updatedRequest.previous_versions) : updatedRequest.previous_versions)
+      : [];
+
     const result: any = {
       id: updatedRequest.id,
       requesterName: updatedRequest.requester_name,
@@ -518,6 +905,10 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       approvalHistory: approvalHistoryData,
       rejectionReason: updatedRequest.rejection_reason,
       createdAt: updatedRequest.created_at,
+      requesterId: updatedRequest.requester_id,
+      isRevised: updatedRequest.is_revised || false,
+      revisionCount: updatedRequest.revision_count || 0,
+      previousVersions: previousVersionsData,
     };
 
     if (updatedRequest.request_type === 'FILE_TRANSFER') {
@@ -526,6 +917,12 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       result.backups = filesData;
     } else if (updatedRequest.request_type === 'VDI' || updatedRequest.request_type === 'VDI_OPEN') {
       result.vdis = filesData;
+    } else if (updatedRequest.request_type === 'TAPE') {
+      result.tapes = filesData;
+    } else if (updatedRequest.request_type === 'USB_PORT') {
+      result.usbPorts = filesData;
+    } else if (updatedRequest.request_type === 'APP_INSTALL') {
+      result.appInstalls = filesData;
     }
 
     res.json(result);
@@ -542,7 +939,6 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
     const requestId = req.params.id;
     const { rejectionReason } = req.body;
 
-    // اعتبارسنجی دلیل رد
     if (!rejectionReason || typeof rejectionReason !== 'string' || rejectionReason.trim() === '') {
       return res.status(400).json({ error: 'دلیل رد درخواست الزامی است' });
     }
@@ -628,6 +1024,10 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       ? JSON.parse(updatedRequest.approval_history)
       : (Array.isArray(updatedRequest.approval_history) ? updatedRequest.approval_history : []);
 
+    const previousVersionsData = updatedRequest.previous_versions 
+      ? (typeof updatedRequest.previous_versions === 'string' ? JSON.parse(updatedRequest.previous_versions) : updatedRequest.previous_versions)
+      : [];
+
     const result: any = {
       id: updatedRequest.id,
       requesterName: updatedRequest.requester_name,
@@ -638,6 +1038,10 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       approvalHistory: approvalHistoryData,
       rejectionReason: updatedRequest.rejection_reason,
       createdAt: updatedRequest.created_at,
+      requesterId: updatedRequest.requester_id,
+      isRevised: updatedRequest.is_revised || false,
+      revisionCount: updatedRequest.revision_count || 0,
+      previousVersions: previousVersionsData,
     };
 
     if (updatedRequest.request_type === 'FILE_TRANSFER') {
@@ -646,6 +1050,12 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       result.backups = filesData;
     } else if (updatedRequest.request_type === 'VDI' || updatedRequest.request_type === 'VDI_OPEN') {
       result.vdis = filesData;
+    } else if (updatedRequest.request_type === 'TAPE') {
+      result.tapes = filesData;
+    } else if (updatedRequest.request_type === 'USB_PORT') {
+      result.usbPorts = filesData;
+    } else if (updatedRequest.request_type === 'APP_INSTALL') {
+      result.appInstalls = filesData;
     }
 
     res.json(result);

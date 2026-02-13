@@ -47,10 +47,10 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
     setShowRejectDialog(true);
   };
 
-  const handleApproveConfirm = () => {
+  const handleApproveConfirm = (approvalNote?: string) => {
     if (selectedRequestId) {
       setShowApproveDialog(false);
-      onApprove(selectedRequestId);
+      onApprove(selectedRequestId, approvalNote);
       setSelectedRequestId(null);
     }
   };
@@ -102,6 +102,9 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
               const isFileTransfer = request.requestType === RequestType.FILE_TRANSFER;
               const isBackup = request.requestType === RequestType.BACKUP;
               const isVDI = request.requestType === RequestType.VDI || request.requestType === 'VDI_OPEN';
+              const isTape = request.requestType === RequestType.TAPE;
+              const isUSBPort = request.requestType === RequestType.USB_PORT;
+              const isAppInstall = request.requestType === RequestType.APP_INSTALL;
               
               return (
                 <div key={request.id} className={`bg-white border-2 rounded-lg shadow-sm transition-all ${
@@ -120,9 +123,12 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                         <span className={`text-xs px-2 py-1 rounded font-semibold ${
                           isFileTransfer ? 'bg-blue-100 text-blue-800' : 
                           isVDI ? 'bg-purple-100 text-purple-800' : 
+                          isTape ? 'bg-orange-100 text-orange-800' :
+                          isUSBPort ? 'bg-teal-100 text-teal-800' :
+                          isAppInstall ? 'bg-purple-100 text-purple-800' :
                           'bg-green-100 text-green-800'
                         }`}>
-                          {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : 'Backup'}
+                          {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : 'Backup'}
                         </span>
                         {/* من اینجام - اضافه کردن واحد مربوطه */}
                         <div className="text-gray-700 flex flex-col md:flex-row md:items-center md:gap-4">
@@ -250,6 +256,36 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                                 <div><strong className="text-gray-500">آدرس مبدا:</strong> {vdi.sourceAddress || '—'}</div>
                                 <div><strong className="text-gray-500">آدرس مقصد:</strong> {vdi.destinationAddress || '—'}</div>
                                 <div className="md:col-span-2"><strong className="text-gray-500">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {isTape && request.tapes && request.tapes.map((tape, tapeIndex) => (
+                            <div key={tape.id} className="p-3 bg-orange-50 rounded-md border border-orange-100">
+                              <div className="font-bold text-gray-700 mb-2">Tape {tapeIndex + 1}</div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                <div><strong className="text-gray-500">IP سرور:</strong> {tape.serverIP}</div>
+                                <div><strong className="text-gray-500">نام فایل:</strong> {tape.fileName}</div>
+                                <div className="md:col-span-2"><strong className="text-gray-500">مسیر فایل:</strong> {tape.filePath}</div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {isUSBPort && request.usbPorts && request.usbPorts.map((usbPort, usbIndex) => (
+                            <div key={usbPort.id} className="p-3 bg-teal-50 rounded-md border border-teal-100">
+                              <div className="font-bold text-gray-700 mb-2">USB Port {usbIndex + 1}</div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                <div><strong className="text-gray-500">IP سرور:</strong> {usbPort.serverIP}</div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {isAppInstall && request.appInstalls && request.appInstalls.map((appInstall, appIndex) => (
+                            <div key={appInstall.id} className="p-3 bg-purple-50 rounded-md border border-purple-100">
+                              <div className="font-bold text-gray-700 mb-2">نصب برنامه {appIndex + 1}</div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                <div><strong className="text-gray-500">IP سرور:</strong> {appInstall.serverIP}</div>
+                                <div><strong className="text-gray-500">نام برنامه یا لینک:</strong> {appInstall.appNameOrLink}</div>
                               </div>
                             </div>
                           ))}

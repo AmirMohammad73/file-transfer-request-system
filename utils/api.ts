@@ -1,4 +1,4 @@
-import { User, Request, FileDetail, BackupDetail, VDIDetail, RequestType } from '../types';
+import { User, Request, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, RequestType } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:5000/api');
 
@@ -71,16 +71,21 @@ export const requestsAPI = {
     return apiCall<Request[]>('/requests/history');
   },
 
-  create: async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[] }): Promise<Request> => {
+  getRejected: async (): Promise<Request[]> => {
+    return apiCall<Request[]>('/requests/rejected');
+  },
+
+  create: async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[] }): Promise<Request> => {
     return apiCall<Request>('/requests', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  approve: async (id: string): Promise<Request> => {
+  approve: async (id: string, approvalNote?: string): Promise<Request> => {
     return apiCall<Request>(`/requests/${id}/approve`, {
       method: 'PUT',
+      body: JSON.stringify({ approvalNote: approvalNote || '' }),
     });
   },
 
@@ -88,6 +93,19 @@ export const requestsAPI = {
     return apiCall<Request>(`/requests/${id}/reject`, {
       method: 'PUT',
       body: JSON.stringify({ rejectionReason }),
+    });
+  },
+
+  cancel: async (id: string): Promise<Request> => {
+    return apiCall<Request>(`/requests/${id}/cancel`, {
+      method: 'PUT',
+    });
+  },
+
+  revise: async (id: string, data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[] }): Promise<Request> => {
+    return apiCall<Request>(`/requests/${id}/revise`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
     });
   },
 

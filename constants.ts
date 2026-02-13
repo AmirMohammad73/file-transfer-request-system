@@ -22,6 +22,7 @@ export const ROLE_NAMES: { [key in Role]: string } = {
   [Role.DEPUTY]: 'معاون/مدیر کل',
   [Role.NETWORK_HEAD]: 'واحد شبکه و امنیت',
   [Role.NETWORK_ADMIN]: 'پشتیبانی شبکه',
+  [Role.NETWORK_USB_ADMIN]: 'پشتیبانی USB',
 };
 
 export const STATUS_STYLES: { [key in Status]: { text: string; bg: string; color: string } } = {
@@ -29,8 +30,8 @@ export const STATUS_STYLES: { [key in Status]: { text: string; bg: string; color
     [Status.APPROVED]: { text: 'تایید شده', bg: 'bg-blue-100', color: 'text-blue-800' },
     [Status.REJECTED]: { text: 'رد شده', bg: 'bg-red-100', color: 'text-red-800' },
     [Status.COMPLETED]: { text: 'انجام شده', bg: 'bg-green-100', color: 'text-green-800' },
+    [Status.CANCELLED]: { text: 'لغو شده', bg: 'bg-gray-100', color: 'text-gray-800' },
 };
-
 export const INITIAL_REQUESTS: Request[] = [
     {
         id: 'req-001',

@@ -8,7 +8,7 @@ interface ConfirmDialogProps {
   cancelText?: string;
   onConfirm: (rejectionReason?: string) => void;
   onCancel: () => void;
-  type?: 'approve' | 'reject';
+  type?: 'approve' | 'reject' | 'cancel';
 }
 
 const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -22,12 +22,13 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   type = 'approve',
 }) => {
   const [rejectionReason, setRejectionReason] = useState('');
+  const [approvalNote, setApprovalNote] = useState('');
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
   const handleConfirm = () => {
-    // اگر نوع رد درخواست است، بررسی کن که دلیل وارد شده باشد
+    // فقط برای نوع reject نیاز به دلیل داریم
     if (type === 'reject') {
       if (!rejectionReason.trim()) {
         setError('لطفاً دلیل رد درخواست را وارد کنید');
@@ -37,25 +38,32 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         setError('دلیل رد درخواست نباید بیشتر از 500 کاراکتر باشد');
         return;
       }
+      onConfirm(rejectionReason.trim());
+    } else if (type === 'approve') {
+      // برای approve توضیحات اختیاری است
+      onConfirm(approvalNote.trim() || undefined);
+    } else {
+      // برای cancel نیاز به دلیل نداریم
+      onConfirm(undefined);
     }
     
-    // ارسال دلیل (اگر نوع reject بود) یا undefined
-    onConfirm(type === 'reject' ? rejectionReason.trim() : undefined);
-    
-    // پاک کردن state
     setRejectionReason('');
+    setApprovalNote('');
     setError('');
   };
 
   const handleCancel = () => {
     setRejectionReason('');
+    setApprovalNote('');
     setError('');
     onCancel();
   };
 
   const confirmButtonClass = type === 'approve'
     ? 'bg-[#2ecc71] hover:bg-[#27ae60]'
-    : 'bg-[#e74c3c] hover:bg-[#c0392b]';
+    : type === 'reject'
+    ? 'bg-[#e74c3c] hover:bg-[#c0392b]'
+    : 'bg-gray-500 hover:bg-gray-600';
 
   return (
     <div 
@@ -102,6 +110,32 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             </div>
           )}
 
+          {/* فیلد توضیحات اختیاری - فقط برای نوع approve */}
+          {type === 'approve' && (
+            <div className="mb-4">
+              <label htmlFor="approval-note" className="block text-sm font-semibold text-gray-700 mb-2">
+                توضیحات (اختیاری)
+              </label>
+              <textarea
+                id="approval-note"
+                value={approvalNote}
+                onChange={(e) => {
+                  setApprovalNote(e.target.value);
+                  setError('');
+                }}
+                maxLength={500}
+                rows={4}
+                placeholder="در صورت نیاز، توضیحات خود را وارد کنید..."
+                className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2ecc71] focus:border-[#2ecc71] resize-none"
+              />
+              <div className="flex justify-end items-center mt-1">
+                <span className={`text-sm ${approvalNote.length > 450 ? 'text-orange-500 font-semibold' : 'text-gray-500'}`}>
+                  {approvalNote.length}/500 کاراکتر
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 justify-end">
             <button
               onClick={handleCancel}
@@ -115,7 +149,9 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               className={`px-6 py-2.5 text-white rounded-md transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 cursor-pointer font-medium ${confirmButtonClass} ${
                 type === 'approve' 
                   ? 'focus:ring-green-500 hover:shadow-lg' 
-                  : 'focus:ring-red-500 hover:shadow-lg'
+                  : type === 'reject'
+                  ? 'focus:ring-red-500 hover:shadow-lg'
+                  : 'focus:ring-gray-500 hover:shadow-lg'
               }`}
               aria-label={confirmText || 'تایید'}
             >
