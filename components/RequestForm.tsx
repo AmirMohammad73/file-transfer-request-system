@@ -68,7 +68,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     // State for USB Port form
     const [usbPorts, setUsbPorts] = useState<USBPortDetail[]>(
         initialData?.usbPorts || savedData?.usbPorts || [
-            { id: `usb-${Date.now()}`, serverIP: '' }
+            { id: `usb-${Date.now()}`, serverIP: '', duration: '' }
         ]
     );
 
@@ -269,7 +269,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const addUSBPort = () => {
         setUsbPorts([
             ...usbPorts,
-            { id: `usb-${Date.now()}`, serverIP: '' }
+            { id: `usb-${Date.now()}`, serverIP: '', duration: '' }
         ]);
     };
 
@@ -376,6 +376,11 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         setIsSubmitting(false);
                         return;
                     }
+                    if (!usbPort.duration || !usbPort.duration.trim()) {
+                        showToast('لطفاً فیلد "مدت زمان" را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
                 }
                 onSubmit({ type: RequestType.USB_PORT, usbPorts });
             } else if (requestType === RequestType.APP_INSTALL) {
@@ -410,7 +415,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 setBackups([{ id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }]);
                 setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }]);
                 setTapes([{ id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }]);
-                setUsbPorts([{ id: `usb-${Date.now()}`, serverIP: '' }]);
+                setUsbPorts([{ id: `usb-${Date.now()}`, serverIP: '', duration: '' }]);
                 setAppInstalls([{ id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }]);
             }
         } catch (error) {
@@ -927,7 +932,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="md:col-span-2">
+                                <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         IP سرور <span className="text-red-500">*</span>
                                     </label>
@@ -936,6 +941,19 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         value={usbPort.serverIP} 
                                         onChange={e => handleUSBPortChange(index, 'serverIP', e.target.value)} 
                                         placeholder="مثال: 192.168.1.100 یا توضیحات مربوط به سرور"
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#16a085]" 
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        مدت زمان <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={usbPort.duration} 
+                                        onChange={e => handleUSBPortChange(index, 'duration', e.target.value)} 
+                                        placeholder="مثال: 4 ساعت"
                                         className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#16a085]" 
                                         required
                                     />

@@ -261,10 +261,13 @@ const MainApp: React.FC = () => {
 
     const handleCancelRequest = async (id: string) => {
         try {
-            await requestsAPI.cancel(id);
+            const cancelledRequest = await requestsAPI.cancel(id);
             // حذف از لیست درخواست‌های رد شده
             setRejectedRequests(prev => prev.filter(req => req.id !== id));
-            setHistoryRequests(prev => prev.filter(req => req.id !== id));
+            // به‌روزرسانی وضعیت درخواست در تاریخچه به جای حذف
+            setHistoryRequests(prev => prev.map(req => 
+                req.id === id ? cancelledRequest : req
+            ));
             alert('درخواست با موفقیت لغو شد.');
         } catch (error: any) {
             alert(error.message || 'خطا در لغو درخواست');

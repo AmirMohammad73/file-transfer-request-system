@@ -276,6 +276,7 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                               <div className="font-bold text-gray-700 mb-2">USB Port {usbIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                                 <div><strong className="text-gray-500">IP سرور:</strong> {usbPort.serverIP}</div>
+                                <div><strong className="text-gray-500">مدت زمان:</strong> {usbPort.duration || '—'}</div>
                               </div>
                             </div>
                           ))}

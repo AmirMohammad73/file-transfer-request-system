@@ -302,6 +302,8 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, o
                             <div className="font-bold text-gray-700 mb-2">Tape {tapeIndex + 1}</div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                               <div><strong className="text-gray-500">IP سرور:</strong> {tape.serverIP}</div>
+                              <div><strong className="text-gray-500">نام فایل:</strong> {tape.fileName}</div>
+                              <div className="md:col-span-2"><strong className="text-gray-500">مسیر فایل:</strong> {tape.filePath}</div>
                             </div>
                           </div>
                         ))}
@@ -311,6 +313,7 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, o
                             <div className="font-bold text-gray-700 mb-2">USB Port {usbIndex + 1}</div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                               <div><strong className="text-gray-500">IP سرور:</strong> {usbPort.serverIP}</div>
+                              <div><strong className="text-gray-500">مدت زمان:</strong> {usbPort.duration || '—'}</div>
                             </div>
                           </div>
                         ))}

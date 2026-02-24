@@ -66,6 +66,7 @@ export interface TapeDetail {
 export interface USBPortDetail {
   id: string;
   serverIP: string;
+  duration: string; // مدت زمان (مثلا "4 ساعت")
 }
 
 export interface AppInstallDetail {

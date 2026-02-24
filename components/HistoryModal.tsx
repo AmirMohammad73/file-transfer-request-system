@@ -171,13 +171,18 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     setShowCancelDialog(true);
   };
 
-  const handleCancelConfirm = () => {
+  const handleCancelConfirm = async () => {
     if (selectedCancelId && onCancel) {
-      onCancel(selectedCancelId);
-      setRequests(prev => prev.filter(req => req.id !== selectedCancelId));
-      setShowCancelDialog(false);
-      setSelectedCancelId(null);
-      showToast('درخواست با موفقیت لغو شد', 'success');
+      try {
+        await onCancel(selectedCancelId);
+        // رفرش تاریخچه برای دریافت آخرین وضعیت
+        await fetchHistory();
+        setShowCancelDialog(false);
+        setSelectedCancelId(null);
+        showToast('درخواست با موفقیت لغو شد', 'success');
+      } catch (error: any) {
+        showToast(error.message || 'خطا در لغو درخواست', 'error');
+      }
     }
   };
 
@@ -231,6 +236,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                 <option value="PENDING">در حال بررسی</option>
                 <option value="REJECTED">رد شده</option>
                 <option value="COMPLETED">انجام شده</option>
+                <option value="CANCELLED">لغو شده</option>
               </select>
             </div>
 
@@ -493,6 +499,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                           <div key={usbPort.id} className={`${usbBgClass} p-4 rounded border`}>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                               <div><strong className="text-gray-600">IP سرور:</strong> {usbPort.serverIP}</div>
+                                              <div><strong className="text-gray-600">مدت زمان:</strong> {usbPort.duration || '—'}</div>
                                             </div>
                                           </div>
                                         );

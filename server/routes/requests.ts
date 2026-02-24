@@ -257,6 +257,10 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     const userName = user.name;
     const userRole = user.role;
 
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramCount = 0;
+
     let query = `
       SELECT 
         r.id,
@@ -276,12 +280,12 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         u.group_ids as requester_group_ids
       FROM requests r
       LEFT JOIN req_users u ON r.requester_id = u.id
-      WHERE r.status != 'CANCELLED' AND (
+      WHERE (
+        -- اگر کاربر requester است، درخواست‌های CANCELLED را هم نشان بده
+        (r.status != 'CANCELLED' OR (r.status = 'CANCELLED' AND r.requester_id = $${++paramCount}))
+      ) AND (
     `;
-
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramCount = 0;
+    params.push(userId);
 
     conditions.push(`r.requester_id = $${++paramCount}`);
     params.push(userId);
