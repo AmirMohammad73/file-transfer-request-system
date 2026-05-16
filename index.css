@@ -7,8 +7,41 @@
   --font-family-vazirmatn: 'Vazirmatn', sans-serif;
 }
 
+:root, .light {
+  --bg-page: #f3f4f6;
+  --bg-card: #ffffff;
+  --bg-header: #ffffff;
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --border-color: #e5e7eb;
+  --focus-ring: #3498db;
+  --scrollbar-track: #f1f1f1;
+  --scrollbar-thumb: #888;
+  --scrollbar-thumb-hover: #555;
+  --spinner-track: rgba(0, 0, 0, 0.1);
+  --spinner-top: #3498db;
+}
+
+.dark {
+  --bg-page: #0f172a;
+  --bg-card: #1e293b;
+  --bg-header: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border-color: #334155;
+  --focus-ring: #38bdf8;
+  --scrollbar-track: #1e293b;
+  --scrollbar-thumb: #64748b;
+  --scrollbar-thumb-hover: #94a3b8;
+  --spinner-track: rgba(255, 255, 255, 0.1);
+  --spinner-top: #38bdf8;
+}
+
 body {
   font-family: var(--font-family-vazirmatn);
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  transition: background-color 0.25s ease, color 0.2s ease;
 }
 
 /* استایل برای تقویم شمسی */
@@ -45,7 +78,7 @@ body {
 
 /* Focus states for accessibility */
 *:focus-visible {
-  outline: 2px solid #3498db;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -56,8 +89,8 @@ button, a, input, select, textarea {
 
 /* Loading spinner */
 .spinner {
-  border: 3px solid rgba(0, 0, 0, 0.1);
-  border-top-color: #3498db;
+  border: 3px solid var(--spinner-track);
+  border-top-color: var(--spinner-top);
   border-radius: 50%;
   width: 24px;
   height: 24px;
@@ -77,15 +110,15 @@ button, a, input, select, textarea {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #888;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--scrollbar-thumb-hover);
 }
 

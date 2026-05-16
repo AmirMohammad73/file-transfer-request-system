@@ -32,6 +32,8 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
     ? [Role.REQUESTER, Role.DEPUTY, Role.NETWORK_HEAD, Role.NETWORK_ADMIN]
     : request.requestType === RequestType.USB_PORT
     ? [Role.REQUESTER, Role.GROUP_LEAD, Role.DEPUTY, Role.NETWORK_HEAD, Role.NETWORK_USB_ADMIN]
+    : request.requestType === RequestType.VIDEO_CONFRENCE
+    ? [Role.REQUESTER, Role.VC_ACCEPTER]
     : [Role.REQUESTER, ...ROLE_HIERARCHY];
 
   const getStatusForStep = (step: Role) => {
@@ -42,6 +44,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
         date: formatPersianDateTime(request.createdAt),
         rejectionReason: undefined,
         approvalNote: undefined,
+        conferenceRoom: undefined,
         isFromPreviousVersion: false,
       };
     }
@@ -54,6 +57,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
         date: formatPersianDateTime(approval.date),
         rejectionReason: approval.rejectionReason,
         approvalNote: approval.approvalNote,
+        conferenceRoom: approval.conferenceRoom,
         isFromPreviousVersion: approval.isFromPreviousVersion || false,
       };
     }
@@ -65,6 +69,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
         date: 'در انتظار تایید',
         rejectionReason: undefined,
         approvalNote: undefined,
+        conferenceRoom: undefined,
         isFromPreviousVersion: false,
       };
     }
@@ -75,6 +80,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
       date: ' ',
       rejectionReason: undefined,
       approvalNote: undefined,
+      conferenceRoom: undefined,
       isFromPreviousVersion: false,
     };
   };
@@ -94,9 +100,9 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
         {request.isRevised ? 'مراحل تأیید (نسخه فعلی)' : 'مراحل تأیید'}
       </div>
       
-      <div className={`grid ${approvalSteps.length === 4 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-5'} gap-4`}>
+      <div className={`grid ${approvalSteps.length === 2 ? 'grid-cols-2' : approvalSteps.length === 4 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-5'} gap-4`}>
         {approvalSteps.map(step => {
-          const { status, name, date, rejectionReason, approvalNote, isFromPreviousVersion } = getStatusForStep(step);
+          const { status, name, date, rejectionReason, approvalNote, conferenceRoom, isFromPreviousVersion } = getStatusForStep(step);
           
           let bgColor = 'bg-gray-200';
           let borderColor = 'border-gray-300';
@@ -141,6 +147,14 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
                     <div className="font-semibold text-red-700 mb-1 text-xs">دلیل رد:</div>
                     <div className="text-red-600 text-xs leading-relaxed break-words whitespace-pre-wrap">
                       {rejectionReason}
+                    </div>
+                  </div>
+                )}
+                {conferenceRoom && !isFromPreviousVersion && status === 'checked' && (
+                  <div className="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded text-right max-w-[180px] mx-auto">
+                    <div className="font-semibold text-emerald-800 mb-1 text-xs">شماره اتاق:</div>
+                    <div className="text-emerald-700 text-xs leading-relaxed break-words whitespace-pre-wrap font-medium">
+                      {conferenceRoom}
                     </div>
                   </div>
                 )}
@@ -200,6 +214,14 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
                             <div className="font-semibold text-gray-700 mb-1 text-xs">دلیل رد:</div>
                             <div className="text-gray-600 text-xs leading-relaxed break-words whitespace-pre-wrap">
                               {approval.rejectionReason}
+                            </div>
+                          </div>
+                        )}
+                        {approval.conferenceRoom && isApproved && (
+                          <div className="mt-2 p-2 bg-gray-100 border border-gray-300 rounded text-right max-w-[180px] mx-auto">
+                            <div className="font-semibold text-gray-700 mb-1 text-xs">شماره اتاق:</div>
+                            <div className="text-gray-600 text-xs leading-relaxed break-words whitespace-pre-wrap">
+                              {approval.conferenceRoom}
                             </div>
                           </div>
                         )}

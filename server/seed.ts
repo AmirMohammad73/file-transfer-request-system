@@ -14,10 +14,10 @@ const pool = new Pool({
 
 const users = [
   {
-    name: 'آقای شیخ لو',
-    username: '09122573136',
+    name: 'آقای خواجوی',
+    username: '09123456789',
     password: 'password123',
-    role: 'NETWORK_HEAD',
+    role: 'VC_ACCEPTER',
     department: 'اداره امنیت شبکه و زیرساخت'
   },
 ];

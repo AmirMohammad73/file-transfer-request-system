@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Request, Role, Status, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, RequestType } from '../types';
+import { Request, Role, Status, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, RequestType } from '../types';
 import { ROLE_HIERARCHY } from '../constants';
 import RequestForm from '../components/RequestForm';
 import RequestList from '../components/RequestList';
@@ -27,6 +27,9 @@ const MainApp: React.FC = () => {
     
     if (!currentUser) return null;
 
+    const isDesktopRequester =
+        currentUser.role === Role.REQUESTER || currentUser.role === Role.V_REQUESTER;
+
     useEffect(() => {
         const fetchRequests = async () => {
             try {
@@ -34,8 +37,8 @@ const MainApp: React.FC = () => {
                 const fetchedRequests = await requestsAPI.getAll();
                 setRequests(fetchedRequests);
                 
-                // اگر کاربر REQUESTER است، درخواست‌های رد شده را هم بگیر
-                if (currentUser.role === Role.REQUESTER) {
+                // اگر کاربر درخواست‌دهنده است، درخواست‌های رد شده را هم بگیر
+                if (isDesktopRequester) {
                     const fetchedRejected = await requestsAPI.getRejected();
                     setRejectedRequests(fetchedRejected);
                 }
@@ -77,9 +80,9 @@ const MainApp: React.FC = () => {
     }, [currentUser]); 
 
     const pendingRequests = useMemo(() => {
-        if (currentUser.role === Role.REQUESTER) return [];
+        if (isDesktopRequester) return [];
         return requests.filter(req => req.status === Status.PENDING && req.currentApprover === currentUser.role);
-    }, [requests, currentUser]);
+    }, [requests, currentUser, isDesktopRequester]);
 
     const sortedHistoryRequests = useMemo(() => {
         return historyRequests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -87,7 +90,7 @@ const MainApp: React.FC = () => {
 
     // Notification برای تایید کنندگان (درخواست‌های جدید)
     useEffect(() => {
-        if (currentUser.role === Role.REQUESTER) return;
+        if (isDesktopRequester) return;
 
         const currentPendingCount = pendingRequests.length;
         const currentPendingIds = new Set(pendingRequests.map(req => req.id));
@@ -115,7 +118,11 @@ const MainApp: React.FC = () => {
                     ? request.tapes?.length || 0
                     : request.requestType === RequestType.USB_PORT
                     ? request.usbPorts?.length || 0
-                    : request.appInstalls?.length || 0;
+                        : request.requestType === RequestType.VIDEO_CONFRENCE
+                        ? request.videoConferences?.length || 0
+                        : request.requestType === RequestType.SERVER_RESTART
+                        ? request.serverRestarts?.length || 0
+                        : request.appInstalls?.length || 0;
                 const itemsType = request.requestType === RequestType.FILE_TRANSFER 
                     ? 'فایل' 
                     : request.requestType === RequestType.BACKUP 
@@ -126,6 +133,10 @@ const MainApp: React.FC = () => {
                     ? 'درخواست Tape'
                     : request.requestType === RequestType.USB_PORT
                     ? 'درخواست USB Port'
+                    : request.requestType === RequestType.VIDEO_CONFRENCE
+                    ? 'درخواست ویدئو کنفرانس'
+                    : request.requestType === RequestType.SERVER_RESTART
+                    ? 'ریستارت سرور'
                     : 'درخواست نصب برنامه';
                 
                 showNotification({
@@ -140,11 +151,11 @@ const MainApp: React.FC = () => {
 
         previousPendingCountRef.current = currentPendingCount;
         previousPendingIdsRef.current = currentPendingIds;
-    }, [pendingRequests, currentUser.role, showNotification]);
+    }, [pendingRequests, currentUser.role, showNotification, isDesktopRequester]);
 
-    // Notification برای REQUESTER (درخواست‌های تکمیل شده)
+    // Notification برای REQUESTER / V_REQUESTER (درخواست‌های تکمیل شده)
     useEffect(() => {
-        if (currentUser.role !== Role.REQUESTER) return;
+        if (!isDesktopRequester) return;
 
         const completedRequests = historyRequests.filter(req => req.status === Status.COMPLETED);
         const currentCompletedIds = new Set(completedRequests.map(req => req.id));
@@ -167,11 +178,17 @@ const MainApp: React.FC = () => {
                         ? 'تهیه پشتیبان از Tape'
                         : request.requestType === RequestType.USB_PORT
                         ? 'باز کردن USB Port'
+                        : request.requestType === RequestType.VIDEO_CONFRENCE
+                        ? 'ویدئو کنفرانس'
+                        : request.requestType === RequestType.SERVER_RESTART
+                        ? 'ریستارت سرور'
                         : 'نصب برنامه';
                     
                     showNotification({
                         title: '✅ درخواست شما انجام شد',
-                        body: `درخواست ${requestType} شما (#${request.id.split('-')[1]}) با موفقیت توسط مسئول شبکه انجام و تکمیل شد.`,
+                        body: request.requestType === RequestType.VIDEO_CONFRENCE
+                            ? `درخواست ویدئو کنفرانس شما (#${request.id.split('-')[1]}) تأیید و تکمیل شد. شماره اتاق در بخش تاریخچه نمایش داده می‌شود.`
+                            : `درخواست ${requestType} شما (#${request.id.split('-')[1]}) با موفقیت توسط مسئول شبکه انجام و تکمیل شد.`,
                         tag: `completed-${request.id}`,
                     }).catch(error => {
                         console.error('خطا در نمایش Notification:', error);
@@ -181,11 +198,11 @@ const MainApp: React.FC = () => {
         }
 
         previousCompletedIdsRef.current = currentCompletedIds;
-    }, [historyRequests, currentUser.role, showNotification]);
+    }, [historyRequests, showNotification, isDesktopRequester]);
 
-    // Notification برای REQUESTER (درخواست‌های رد شده - جدید)
+    // Notification برای درخواست‌دهندگان (درخواست‌های رد شده - جدید)
     useEffect(() => {
-        if (currentUser.role !== Role.REQUESTER) return;
+        if (!isDesktopRequester) return;
 
         const currentRejectedIds = new Set(rejectedRequests.map(req => req.id));
 
@@ -207,6 +224,10 @@ const MainApp: React.FC = () => {
                         ? 'تهیه پشتیبان از Tape'
                         : request.requestType === RequestType.USB_PORT
                         ? 'باز کردن USB Port'
+                        : request.requestType === RequestType.VIDEO_CONFRENCE
+                        ? 'ویدئو کنفرانس'
+                        : request.requestType === RequestType.SERVER_RESTART
+                        ? 'ریستارت سرور'
                         : 'نصب برنامه';
                     
                     showNotification({
@@ -221,9 +242,9 @@ const MainApp: React.FC = () => {
         }
 
         previousRejectedIdsRef.current = currentRejectedIds;
-    }, [rejectedRequests, currentUser.role, showNotification]);
+    }, [rejectedRequests, showNotification, isDesktopRequester]);
 
-    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[] }) => {
+    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => {
         try {
             const newRequest = await requestsAPI.create(data);
             setRequests(prev => [newRequest, ...prev]);
@@ -234,9 +255,9 @@ const MainApp: React.FC = () => {
         }
     };
 
-    const handleApprove = async (id: string, approvalNote?: string) => {
+    const handleApprove = async (id: string, opts?: { approvalNote?: string; conferenceRoom?: string }) => {
         try {
-            const updatedRequest = await requestsAPI.approve(id, approvalNote);
+            const updatedRequest = await requestsAPI.approve(id, opts);
             setRequests(prev => prev.map(req => req.id === id ? updatedRequest : req));
             setHistoryRequests(prev => prev.map(req => req.id === id ? updatedRequest : req));
         } catch (error: any) {
@@ -251,7 +272,7 @@ const MainApp: React.FC = () => {
             setHistoryRequests(prev => prev.map(req => req.id === id ? updatedRequest : req));
             
             // اضافه کردن به لیست درخواست‌های رد شده اگر کاربر REQUESTER باشد
-            if (currentUser.role === Role.REQUESTER) {
+            if (isDesktopRequester) {
                 setRejectedRequests(prev => [updatedRequest, ...prev]);
             }
         } catch (error: any) {
@@ -274,7 +295,7 @@ const MainApp: React.FC = () => {
         }
     };
 
-    const handleReviseRequest = async (id: string, data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[] }) => {
+    const handleReviseRequest = async (id: string, data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => {
         try {
             const updatedRequest = await requestsAPI.revise(id, data);
             // حذف از لیست رد شده و اضافه به pending
@@ -290,13 +311,13 @@ const MainApp: React.FC = () => {
     const hasRejectedRequests = rejectedRequests.length > 0;
 
     return (
-        <div className="bg-gray-100 min-h-screen pt-24 p-5">
+        <div className="bg-gray-100 dark:bg-slate-900 min-h-screen pt-24 p-5 transition-colors duration-200">
             <Header onShowHistory={() => setHistoryOpen(true)} />
             <div className="max-w-7xl mx-auto">
-                <div className="bg-white rounded-lg shadow-xl p-8">
-                    <header className="text-center mb-8 pb-4 border-b-2 border-[#3498db] relative">
-                        <h1 className="text-3xl font-bold text-[#2c3e50]">
-                            {currentUser.role === Role.REQUESTER ? 'فرم درخواست به مرکز داده' : 'درخواست‌های در انتظار بررسی'}
+                <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-8 border border-gray-200 dark:border-slate-600 transition-colors duration-200">
+                    <header className="text-center mb-8 pb-4 border-b-2 border-[#3498db] dark:border-sky-500 relative">
+                        <h1 className="text-3xl font-bold text-[#2c3e50] dark:text-slate-100">
+                            {isDesktopRequester ? 'فرم درخواست به مرکز داده' : 'درخواست‌های در انتظار بررسی'}
                         </h1>
                     </header>
                     
@@ -304,13 +325,14 @@ const MainApp: React.FC = () => {
                         {loading ? (
                             <div className="text-center py-10">
                                 <div className="spinner mx-auto mb-4"></div>
-                                <p className="text-gray-600">در حال بارگذاری...</p>
+                                <p className="text-gray-600 dark:text-slate-300">در حال بارگذاری...</p>
                             </div>
-                        ) : currentUser.role === Role.REQUESTER ? (
+                        ) : isDesktopRequester ? (
                             <>
                                 {hasRejectedRequests ? (
                                     <RejectedRequestsList 
                                         requests={rejectedRequests}
+                                        currentUser={currentUser}
                                         onCancel={handleCancelRequest}
                                         onRevise={handleReviseRequest}
                                     />

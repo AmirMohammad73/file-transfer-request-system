@@ -7,7 +7,7 @@ import ConfirmDialog from './ConfirmDialog';
 interface RequestListProps {
   requests: Request[];
   currentUser: User;
-  onApprove: (id: string) => void;
+  onApprove: (id: string, opts?: { approvalNote?: string; conferenceRoom?: string }) => void;
   onReject: (id: string, rejectionReason: string) => void;
 }
 
@@ -47,10 +47,10 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
     setShowRejectDialog(true);
   };
 
-  const handleApproveConfirm = (approvalNote?: string) => {
+  const handleApproveConfirm = (approvalNote?: string, conferenceRoom?: string) => {
     if (selectedRequestId) {
       setShowApproveDialog(false);
-      onApprove(selectedRequestId, approvalNote);
+      onApprove(selectedRequestId, { approvalNote, conferenceRoom });
       setSelectedRequestId(null);
     }
   };
@@ -70,8 +70,8 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
       <ConfirmDialog
         isOpen={showApproveDialog}
         title="تایید درخواست"
-        message={`آیا از ${currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل' : 'تایید'} درخواست #${selectedRequest?.id.split('-')[1]} مطمئن هستید؟`}
-        confirmText={currentUser.role === Role.NETWORK_ADMIN ? 'بله، انجام شد' : 'بله، تایید کن'}
+        message={`آیا از ${currentUser.role === Role.NETWORK_ADMIN || currentUser.role === Role.VC_ACCEPTER ? 'انجام و تکمیل' : 'تایید'} درخواست #${selectedRequest?.id.split('-')[1]} مطمئن هستید؟`}
+        confirmText={currentUser.role === Role.NETWORK_ADMIN || currentUser.role === Role.VC_ACCEPTER ? 'بله، انجام شد' : 'بله، تایید کن'}
         cancelText="انصراف"
         onConfirm={handleApproveConfirm}
         onCancel={() => {
@@ -79,6 +79,7 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
           setSelectedRequestId(null);
         }}
         type="approve"
+        requireConferenceRoom={selectedRequest?.requestType === RequestType.VIDEO_CONFRENCE}
       />
       <ConfirmDialog
         isOpen={showRejectDialog}
@@ -105,6 +106,8 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
               const isTape = request.requestType === RequestType.TAPE;
               const isUSBPort = request.requestType === RequestType.USB_PORT;
               const isAppInstall = request.requestType === RequestType.APP_INSTALL;
+              const isServerRestart = request.requestType === RequestType.SERVER_RESTART;
+              const isVideoConference = request.requestType === RequestType.VIDEO_CONFRENCE;
               
               return (
                 <div key={request.id} className={`bg-white border-2 rounded-lg shadow-sm transition-all ${
@@ -126,9 +129,11 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                           isTape ? 'bg-orange-100 text-orange-800' :
                           isUSBPort ? 'bg-teal-100 text-teal-800' :
                           isAppInstall ? 'bg-purple-100 text-purple-800' :
+                          isServerRestart ? 'bg-red-100 text-red-800' :
+                          isVideoConference ? 'bg-rose-100 text-rose-800' :
                           'bg-green-100 text-green-800'
                         }`}>
-                          {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : 'Backup'}
+                          {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : 'Backup'}
                         </span>
                         {/* من اینجام - اضافه کردن واحد مربوطه */}
                         <div className="text-gray-700 flex flex-col md:flex-row md:items-center md:gap-4">
@@ -179,10 +184,10 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                               handleApproveClick(request.id);
                             }}
                             className="flex items-center gap-2 px-4 py-2 bg-[#2ecc71] text-white rounded-md hover:bg-[#27ae60] transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 cursor-pointer font-medium shadow-sm hover:shadow-md"
-                            aria-label={currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل درخواست' : 'تایید درخواست'}
+                            aria-label={currentUser.role === Role.NETWORK_ADMIN || currentUser.role === Role.VC_ACCEPTER ? 'انجام و تکمیل درخواست' : 'تایید درخواست'}
                           >
                             <CheckCircleIcon className="w-5 h-5" />
-                            <span>{currentUser.role === Role.NETWORK_ADMIN ? 'انجام و تکمیل' : 'تایید درخواست'}</span>
+                            <span>{currentUser.role === Role.NETWORK_ADMIN || currentUser.role === Role.VC_ACCEPTER ? 'انجام و تکمیل' : 'تایید درخواست'}</span>
                           </button>
                         </div>
 
@@ -287,6 +292,35 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                                 <div><strong className="text-gray-500">IP سرور:</strong> {appInstall.serverIP}</div>
                                 <div><strong className="text-gray-500">نام برنامه یا لینک:</strong> {appInstall.appNameOrLink}</div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {isServerRestart && request.serverRestarts && request.serverRestarts.map((sr, srIndex) => (
+                            <div key={sr.id} className="p-3 bg-red-50 rounded-md border border-red-100">
+                              <div className="font-bold text-gray-700 mb-2">ریستارت سرور {srIndex + 1}</div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                <div><strong className="text-gray-500">IP سرور:</strong> {sr.serverIP}</div>
+                                <div>
+                                  <strong className="text-gray-500">زمان ریستارت:</strong>{' '}
+                                  {sr.isUrgent ? (
+                                    <span className="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-xs font-bold">فوری</span>
+                                  ) : (
+                                    sr.restartTime || '—'
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {isVideoConference && request.videoConferences && request.videoConferences.map((vc, vcIndex) => (
+                            <div key={vc.id} className="p-3 bg-rose-50 rounded-md border border-rose-100">
+                              <div className="font-bold text-gray-700 mb-2">ویدئو کنفرانس {vcIndex + 1}</div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                <div><strong className="text-gray-500">تاریخ برگزاری:</strong> {vc.scheduledDate ? new Date(vc.scheduledDate + 'T12:00:00').toLocaleDateString('fa-IR') : '—'}</div>
+                                <div><strong className="text-gray-500">تعداد شرکت‌کننده:</strong> {vc.participantCount || '—'}</div>
+                                <div><strong className="text-gray-500">ساعت شروع:</strong> {vc.startTime || '—'}</div>
+                                <div><strong className="text-gray-500">ساعت پایان:</strong> {vc.endTime || '—'}</div>
                               </div>
                             </div>
                           ))}

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, User, RequestType, Request } from '../types';
+import { FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, User, RequestType, Request, Role } from '../types';
+import { SHOW_VIDEO_CONFERENCE_IN_MENU } from '../constants';
 import { PlusCircleIcon, SendIcon, Trash2Icon } from './icons';
 import { useToastContext } from './ToastContainer';
+import PersianDatePicker from './PersianDatePicker';
 
 interface RequestFormProps {
     currentUser: User;
-    onSubmit: (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[] }) => void;
+    onSubmit: (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => void;
     initialData?: Request;
     isEditing?: boolean;
 }
@@ -32,9 +34,12 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     };
     
     const savedData = getSavedData();
-    const [requestType, setRequestType] = useState<RequestType>(
-        initialData?.requestType || savedData?.requestType || RequestType.FILE_TRANSFER
-    );
+    const [requestType, setRequestType] = useState<RequestType>(() => {
+        if (isEditing && initialData?.requestType) return initialData.requestType;
+        if (savedData?.requestType) return savedData.requestType as RequestType;
+        if (currentUser.role === Role.V_REQUESTER) return RequestType.VIDEO_CONFRENCE;
+        return RequestType.FILE_TRANSFER;
+    });
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // State for File Transfer form
@@ -79,6 +84,24 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         ]
     );
 
+    const [videoConferences, setVideoConferences] = useState<VideoConferenceDetail[]>(
+        initialData?.videoConferences || savedData?.videoConferences || [
+            { id: `vc-${Date.now()}`, scheduledDate: '', startTime: '', endTime: '', participantCount: '' },
+        ]
+    );
+
+    const [serverRestarts, setServerRestarts] = useState<ServerRestartDetail[]>(
+        initialData?.serverRestarts || savedData?.serverRestarts || [
+            { id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false },
+        ]
+    );
+
+    useEffect(() => {
+        if (!isEditing && currentUser.role === Role.V_REQUESTER) {
+            setRequestType(RequestType.VIDEO_CONFRENCE);
+        }
+    }, [currentUser.role, isEditing]);
+
     // Save form data to localStorage whenever it changes
     useEffect(() => {
         if (isEditing || isSubmitting) return; // Don't save when editing or submitting
@@ -91,6 +114,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             tapes: requestType === RequestType.TAPE ? tapes : undefined,
             usbPorts: requestType === RequestType.USB_PORT ? usbPorts : undefined,
             appInstalls: requestType === RequestType.APP_INSTALL ? appInstalls : undefined,
+            serverRestarts: requestType === RequestType.SERVER_RESTART ? serverRestarts : undefined,
+            videoConferences: requestType === RequestType.VIDEO_CONFRENCE ? videoConferences : undefined,
         };
         
         try {
@@ -98,7 +123,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         } catch (e) {
             console.error('Error saving form data to localStorage:', e);
         }
-    }, [requestType, files, backups, vdis, tapes, usbPorts, appInstalls, isEditing, isSubmitting]);
+    }, [requestType, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences, isEditing, isSubmitting]);
 
     // Update form when initialData changes
     useEffect(() => {
@@ -133,6 +158,12 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             // Set app installs with proper defaults
             if (initialData.requestType === RequestType.APP_INSTALL && initialData.appInstalls && initialData.appInstalls.length > 0) {
                 setAppInstalls(initialData.appInstalls);
+            }
+            if (initialData.requestType === RequestType.VIDEO_CONFRENCE && initialData.videoConferences && initialData.videoConferences.length > 0) {
+                setVideoConferences(initialData.videoConferences);
+            }
+            if (initialData.requestType === RequestType.SERVER_RESTART && initialData.serverRestarts && initialData.serverRestarts.length > 0) {
+                setServerRestarts(initialData.serverRestarts);
             }
         }
     }, [initialData]);
@@ -200,6 +231,32 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         const newAppInstalls = [...appInstalls];
         newAppInstalls[index] = { ...newAppInstalls[index], [field]: value };
         setAppInstalls(newAppInstalls);
+    };
+
+    const handleServerRestartChange = (index: number, field: keyof ServerRestartDetail, value: string | boolean) => {
+        const next = [...serverRestarts];
+        if (field === 'isUrgent' && typeof value === 'boolean') {
+            next[index] = { ...next[index], isUrgent: value, restartTime: value ? '' : next[index].restartTime };
+        } else {
+            next[index] = { ...next[index], [field]: value };
+        }
+        setServerRestarts(next);
+    };
+
+    const addServerRestart = () => {
+        setServerRestarts([
+            ...serverRestarts,
+            { id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false },
+        ]);
+    };
+
+    const removeServerRestart = (id: string) => {
+        if (serverRestarts.length > 1) {
+            setServerRestarts(serverRestarts.filter((sr) => sr.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
+        } else {
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
+        }
     };
 
     const addFile = () => {
@@ -292,6 +349,28 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const removeAppInstall = (id: string) => {
         if (appInstalls.length > 1) {
             setAppInstalls(appInstalls.filter(app => app.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
+        } else {
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
+        }
+    };
+
+    const handleVideoConferenceChange = (index: number, field: keyof VideoConferenceDetail, value: string) => {
+        const next = [...videoConferences];
+        next[index] = { ...next[index], [field]: value };
+        setVideoConferences(next);
+    };
+
+    const addVideoConference = () => {
+        setVideoConferences([
+            ...videoConferences,
+            { id: `vc-${Date.now()}`, scheduledDate: '', startTime: '', endTime: '', participantCount: '' },
+        ]);
+    };
+
+    const removeVideoConference = (id: string) => {
+        if (videoConferences.length > 1) {
+            setVideoConferences(videoConferences.filter((v) => v.id !== id));
             showToast('رکورد با موفقیت حذف شد', 'success');
         } else {
             showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
@@ -398,6 +477,55 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                     }
                 }
                 onSubmit({ type: RequestType.APP_INSTALL, appInstalls });
+            } else if (requestType === RequestType.SERVER_RESTART) {
+                for (const sr of serverRestarts) {
+                    if (!sr.serverIP || !sr.serverIP.trim()) {
+                        showToast('لطفاً فیلد «IP سرور» را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (!sr.isUrgent && (!sr.restartTime || !sr.restartTime.trim())) {
+                        showToast('لطفاً «ساعت ریستارت» را وارد کنید یا گزینه «فوری» را انتخاب کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.SERVER_RESTART, serverRestarts });
+            } else if (requestType === RequestType.VIDEO_CONFRENCE) {
+                const timeToMinutes = (t: string): number => {
+                    const parts = t.trim().split(':');
+                    if (parts.length < 2) return NaN;
+                    const h = parseInt(parts[0], 10);
+                    const m = parseInt(parts[1], 10);
+                    if (Number.isNaN(h) || Number.isNaN(m)) return NaN;
+                    return h * 60 + m;
+                };
+                for (const vc of videoConferences) {
+                    if (!vc.scheduledDate?.trim()) {
+                        showToast('لطفاً تاریخ برگزاری را برای همه ردیف‌ها انتخاب کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (!vc.startTime?.trim() || !vc.endTime?.trim()) {
+                        showToast('ساعت شروع و پایان برای همه ردیف‌ها الزامی است.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    const n = parseInt(String(vc.participantCount).replace(/\s/g, ''), 10);
+                    if (Number.isNaN(n) || n < 1) {
+                        showToast('«تعداد شرکت‌کننده» باید عدد صحیح حداقل ۱ باشد.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    const sm = timeToMinutes(vc.startTime);
+                    const em = timeToMinutes(vc.endTime);
+                    if (!Number.isNaN(sm) && !Number.isNaN(em) && em <= sm) {
+                        showToast('ساعت پایان باید بعد از ساعت شروع باشد.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({ type: RequestType.VIDEO_CONFRENCE, videoConferences });
             }
             
             // Clear localStorage after successful submit
@@ -417,6 +545,8 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 setTapes([{ id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }]);
                 setUsbPorts([{ id: `usb-${Date.now()}`, serverIP: '', duration: '' }]);
                 setAppInstalls([{ id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }]);
+                setServerRestarts([{ id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false }]);
+                setVideoConferences([{ id: `vc-${Date.now()}`, scheduledDate: '', startTime: '', endTime: '', participantCount: '' }]);
             }
         } catch (error) {
             showToast('خطا در ارسال درخواست. لطفاً دوباره تلاش کنید.', 'error');
@@ -455,18 +585,29 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             {/* Request Type Selector */}
             <div className="bg-gradient-to-r from-blue-50 to-green-50 border-2 border-blue-300 rounded-lg p-5 mb-6 shadow-md">
                 <label className="font-bold text-gray-800 block mb-3 text-lg">نوع درخواست:</label>
-                <select
-                    value={requestType}
-                    onChange={(e) => setRequestType(e.target.value as RequestType)}
-                    className="w-full p-3 border-2 border-blue-400 rounded-md bg-white text-gray-800 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-                >
-                    <option value={RequestType.FILE_TRANSFER}>فرم درخواست فایل از/به سرور (کد مدرک: NS-F-04-01)</option>
-                    <option value={RequestType.BACKUP}>فرم درخواست تهیه Backup (کد مدرک: NS-F-05-01)</option>
-                    <option value={RequestType.VDI}>فرم درخواست باز کردن VDI (کد مدرک: NS-F-01-01)</option>
-                    <option value={RequestType.TAPE}>فرم درخواست تهیه پشتیبان از Tape</option>
-                    <option value={RequestType.USB_PORT}>فرم باز کردن USB Port</option>
-                    <option value={RequestType.APP_INSTALL}>نصب برنامه</option>
-                </select>
+                {currentUser.role === Role.V_REQUESTER && !isEditing ? (
+                    <div className="w-full p-3 border-2 border-rose-300 rounded-md bg-rose-50 text-gray-800 font-semibold">
+                        درخواست ویدئو کنفرانس (فقط این نوع برای نقش شما فعال است)
+                    </div>
+                ) : (
+                    <select
+                        value={requestType}
+                        onChange={(e) => setRequestType(e.target.value as RequestType)}
+                        disabled={currentUser.role === Role.V_REQUESTER}
+                        className="w-full p-3 border-2 border-blue-400 rounded-md bg-white text-gray-800 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    >
+                        <option value={RequestType.FILE_TRANSFER}>فرم درخواست فایل از/به سرور (کد مدرک: NS-F-04-01)</option>
+                        <option value={RequestType.BACKUP}>فرم درخواست تهیه Backup (کد مدرک: NS-F-05-01)</option>
+                        <option value={RequestType.VDI}>فرم درخواست باز کردن VDI (کد مدرک: NS-F-01-01)</option>
+                        <option value={RequestType.TAPE}>فرم درخواست تهیه پشتیبان از Tape</option>
+                        <option value={RequestType.USB_PORT}>فرم باز کردن USB Port</option>
+                        <option value={RequestType.APP_INSTALL}>نصب برنامه</option>
+                        <option value={RequestType.SERVER_RESTART}>درخواست ریستارت سرور</option>
+                        {SHOW_VIDEO_CONFERENCE_IN_MENU && (currentUser.role === Role.REQUESTER || currentUser.role === Role.V_REQUESTER || isEditing) && (
+                            <option value={RequestType.VIDEO_CONFRENCE}>درخواست ویدئو کنفرانس</option>
+                        )}
+                    </select>
+                )}
             </div>
 
             {/* File Transfer Form */}
@@ -1033,6 +1174,165 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                     >
                         <PlusCircleIcon className="w-5 h-5" />
                         <span>افزودن رکورد جدید</span>
+                    </button>
+                </div>
+            )}
+
+            {/* ریستارت سرور */}
+            {requestType === RequestType.SERVER_RESTART && (
+                <div id="server-restart-container" className="space-y-5">
+                    {serverRestarts.map((sr, index) => (
+                        <div key={sr.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-[#c0392b] text-white px-3 py-1 text-sm font-bold rounded shadow-md">ریستارت سرور</div>
+                            <div className="flex justify-between items-center mt-3 mb-4">
+                                <div className="text-sm font-semibold text-gray-500">مشخصات {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {serverRestarts.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeServerRestart(sr.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        IP سرور <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={sr.serverIP}
+                                        onChange={(e) => handleServerRestartChange(index, 'serverIP', e.target.value)}
+                                        placeholder="مثال: 192.168.1.100"
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#c0392b]"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        ساعت ریستارت (۲۴ ساعته) {!sr.isUrgent && <span className="text-red-500">*</span>}
+                                    </label>
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="time"
+                                            value={sr.restartTime}
+                                            onChange={(e) => handleServerRestartChange(index, 'restartTime', e.target.value)}
+                                            disabled={sr.isUrgent}
+                                            className="flex-1 p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#c0392b] disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                            required={!sr.isUrgent}
+                                        />
+                                        <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={sr.isUrgent}
+                                                onChange={(e) => handleServerRestartChange(index, 'isUrgent', e.target.checked)}
+                                                className="w-4 h-4 rounded border-gray-300 text-[#c0392b] focus:ring-[#c0392b]"
+                                            />
+                                            <span className="font-semibold text-sm text-[#c0392b]">فوری</span>
+                                        </label>
+                                    </div>
+                                    {sr.isUrgent && (
+                                        <p className="text-xs text-[#c0392b] mt-1 font-medium">ریستارت باید فوری انجام شود.</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={addServerRestart}
+                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#c0392b] rounded-lg text-[#c0392b] font-semibold hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#c0392b] focus:ring-offset-2"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        <span>افزودن رکورد جدید</span>
+                    </button>
+                </div>
+            )}
+
+            {/* ویدئو کنفرانس */}
+            {requestType === RequestType.VIDEO_CONFRENCE && (
+                <div id="video-conference-container" className="space-y-5">
+                    {videoConferences.map((vc, index) => (
+                        <div key={vc.id} className="bg-white border-2 border-rose-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                            <div className="absolute -top-3 right-5 bg-rose-600 text-white px-3 py-1 text-sm font-bold rounded shadow-md">ویدئو کنفرانس</div>
+                            <div className="flex justify-between items-center mt-3 mb-4">
+                                <div className="text-sm font-semibold text-gray-500">ردیف {index + 1}</div>
+                                <div className="flex gap-2">
+                                    {videoConferences.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeVideoConference(vc.id)}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                        >
+                                            <Trash2Icon className="w-4 h-4" />
+                                            <span>حذف</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2">
+                                    <PersianDatePicker
+                                        value={vc.scheduledDate}
+                                        onChange={(v) => handleVideoConferenceChange(index, 'scheduledDate', v)}
+                                        label={'تاریخ برگزاری (الزامی)'}
+                                        placeholder="انتخاب تاریخ"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        ساعت شروع <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="time"
+                                        value={vc.startTime}
+                                        onChange={(e) => handleVideoConferenceChange(index, 'startTime', e.target.value)}
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-rose-500"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        ساعت پایان <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="time"
+                                        value={vc.endTime}
+                                        onChange={(e) => handleVideoConferenceChange(index, 'endTime', e.target.value)}
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-rose-500"
+                                        required
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
+                                        تعداد شرکت‌کننده <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={vc.participantCount}
+                                        onChange={(e) => handleVideoConferenceChange(index, 'participantCount', e.target.value)}
+                                        placeholder="مثال: ۱۲"
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-rose-500"
+                                        required
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={addVideoConference}
+                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-rose-500 rounded-lg text-rose-700 font-semibold hover:bg-rose-50 transition-colors focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        <span>افزودن ردیف جدید</span>
                     </button>
                 </div>
             )}

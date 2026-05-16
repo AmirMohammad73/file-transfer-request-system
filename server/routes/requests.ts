@@ -6,6 +6,9 @@ const router = express.Router();
 
 // Helper function to determine approval hierarchy based on request type
 function getApprovalHierarchy(requestType: string): string[] {
+  if (requestType === 'VIDEO_CONFRENCE') {
+    return ['VC_ACCEPTER'];
+  }
   if (requestType === 'BACKUP') {
     return ['GROUP_LEAD', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
   } else if (requestType === 'VDI_OPEN') {
@@ -61,7 +64,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     const params: any[] = [];
     let paramCount = 0;
 
-    if (user.role === 'REQUESTER') {
+    if (user.role === 'REQUESTER' || user.role === 'V_REQUESTER') {
       query += ` AND r.requester_id = $${++paramCount}`;
       params.push(userId);
     } else {
@@ -128,6 +131,10 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         baseRequest.usbPorts = filesData;
       } else if (row.request_type === 'APP_INSTALL') {
         baseRequest.appInstalls = filesData;
+      } else if (row.request_type === 'SERVER_RESTART') {
+        baseRequest.serverRestarts = filesData;
+      } else if (row.request_type === 'VIDEO_CONFRENCE') {
+        baseRequest.videoConferences = filesData;
       }
 
       return baseRequest;
@@ -156,7 +163,7 @@ router.get('/rejected', authenticateToken, async (req: Request, res: Response) =
 
     const user = userResult.rows[0];
 
-    if (user.role !== 'REQUESTER') {
+    if (user.role !== 'REQUESTER' && user.role !== 'V_REQUESTER') {
       return res.status(403).json({ error: 'فقط کاربران درخواست‌دهنده می‌توانند درخواست‌های رد شده را ببینند' });
     }
 
@@ -226,6 +233,10 @@ router.get('/rejected', authenticateToken, async (req: Request, res: Response) =
         baseRequest.usbPorts = filesData;
       } else if (row.request_type === 'APP_INSTALL') {
         baseRequest.appInstalls = filesData;
+      } else if (row.request_type === 'SERVER_RESTART') {
+        baseRequest.serverRestarts = filesData;
+      } else if (row.request_type === 'VIDEO_CONFRENCE') {
+        baseRequest.videoConferences = filesData;
       }
 
       return baseRequest;
@@ -298,8 +309,8 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     `);
     params.push(userName);
 
-    if (userRole !== 'REQUESTER') {
-      if (userRole === 'NETWORK_HEAD' || userRole === 'NETWORK_ADMIN' || userRole === 'NETWORK_USB_ADMIN') {
+    if (userRole !== 'REQUESTER' && userRole !== 'V_REQUESTER') {
+      if (userRole === 'NETWORK_HEAD' || userRole === 'NETWORK_ADMIN' || userRole === 'NETWORK_USB_ADMIN' || userRole === 'VC_ACCEPTER') {
         conditions.push(`
           EXISTS (
             SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
@@ -372,6 +383,10 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
         result.usbPorts = filesData;
       } else if (row.request_type === 'APP_INSTALL') {
         result.appInstalls = filesData;
+      } else if (row.request_type === 'SERVER_RESTART') {
+        result.serverRestarts = filesData;
+      } else if (row.request_type === 'VIDEO_CONFRENCE') {
+        result.videoConferences = filesData;
       }
 
       return result;
@@ -388,7 +403,7 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { type, files, backups, vdis, tapes, usbPorts, appInstalls } = req.body;
+    const { type, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences } = req.body;
 
     if (!type) {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
@@ -426,6 +441,24 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'حداقل یک مشخصات نصب برنامه الزامی است' });
       }
       dataToStore = appInstalls;
+    } else if (type === 'SERVER_RESTART') {
+      if (!serverRestarts || !Array.isArray(serverRestarts) || serverRestarts.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات ریستارت سرور الزامی است' });
+      }
+      for (const item of serverRestarts) {
+        if (!item.serverIP || !String(item.serverIP).trim()) {
+          return res.status(400).json({ error: 'IP سرور الزامی است' });
+        }
+        if (!item.isUrgent && (!item.restartTime || !String(item.restartTime).trim())) {
+          return res.status(400).json({ error: 'ساعت ریستارت الزامی است مگر اینکه گزینه فوری انتخاب شده باشد' });
+        }
+      }
+      dataToStore = serverRestarts;
+    } else if (type === 'VIDEO_CONFRENCE') {
+      if (!videoConferences || !Array.isArray(videoConferences) || videoConferences.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک ردیف ویدئو کنفرانس الزامی است' });
+      }
+      dataToStore = videoConferences;
     }
 
     const userResult = await pool.query(
@@ -439,8 +472,16 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     const user = userResult.rows[0];
 
+    if (user.role === 'V_REQUESTER' && type !== 'VIDEO_CONFRENCE') {
+      return res.status(403).json({ error: 'فقط درخواست ویدئو کنفرانس برای این نقش مجاز است' });
+    }
+
+    if (user.role === 'VC_ACCEPTER') {
+      return res.status(403).json({ error: 'این نقش نمی‌تواند درخواست جدید ثبت کند' });
+    }
+
     // بررسی اینکه آیا کاربر درخواست رد شده دارد؟
-    if (user.role === 'REQUESTER') {
+    if (user.role === 'REQUESTER' || user.role === 'V_REQUESTER') {
       const rejectedCheck = await pool.query(
         'SELECT COUNT(*) as count FROM requests WHERE requester_id = $1 AND status = $2',
         [userId, 'REJECTED']
@@ -541,6 +582,10 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       request.usbPorts = filesData;
     } else if (row.request_type === 'APP_INSTALL') {
       request.appInstalls = filesData;
+    } else if (row.request_type === 'SERVER_RESTART') {
+      request.serverRestarts = filesData;
+    } else if (row.request_type === 'VIDEO_CONFRENCE') {
+      request.videoConferences = filesData;
     }
 
     res.status(201).json(request);
@@ -634,6 +679,10 @@ router.put('/:id/cancel', authenticateToken, async (req: Request, res: Response)
       result.usbPorts = filesData;
     } else if (updatedRequest.request_type === 'APP_INSTALL') {
       result.appInstalls = filesData;
+    } else if (updatedRequest.request_type === 'SERVER_RESTART') {
+      result.serverRestarts = filesData;
+    } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
+      result.videoConferences = filesData;
     }
 
     res.json(result);
@@ -648,7 +697,7 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
   try {
     const userId = (req as any).userId;
     const requestId = req.params.id;
-    const { type, files, backups, vdis, tapes, usbPorts, appInstalls } = req.body;
+    const { type, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences } = req.body;
 
     if (!type) {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
@@ -686,6 +735,24 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
         return res.status(400).json({ error: 'حداقل یک مشخصات نصب برنامه الزامی است' });
       }
       dataToStore = appInstalls;
+    } else if (type === 'SERVER_RESTART') {
+      if (!serverRestarts || !Array.isArray(serverRestarts) || serverRestarts.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک مشخصات ریستارت سرور الزامی است' });
+      }
+      for (const item of serverRestarts) {
+        if (!item.serverIP || !String(item.serverIP).trim()) {
+          return res.status(400).json({ error: 'IP سرور الزامی است' });
+        }
+        if (!item.isUrgent && (!item.restartTime || !String(item.restartTime).trim())) {
+          return res.status(400).json({ error: 'ساعت ریستارت الزامی است مگر اینکه گزینه فوری انتخاب شده باشد' });
+        }
+      }
+      dataToStore = serverRestarts;
+    } else if (type === 'VIDEO_CONFRENCE') {
+      if (!videoConferences || !Array.isArray(videoConferences) || videoConferences.length === 0) {
+        return res.status(400).json({ error: 'حداقل یک ردیف ویدئو کنفرانس الزامی است' });
+      }
+      dataToStore = videoConferences;
     }
 
     const requestResult = await pool.query(
@@ -698,6 +765,12 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
     }
 
     const request = requestResult.rows[0];
+
+    const reviserRoleResult = await pool.query('SELECT role FROM req_users WHERE id = $1', [userId]);
+    const reviserRole = reviserRoleResult.rows[0]?.role;
+    if (reviserRole === 'V_REQUESTER' && type !== 'VIDEO_CONFRENCE') {
+      return res.status(403).json({ error: 'فقط درخواست ویدئو کنفرانس برای این نقش مجاز است' });
+    }
 
     // فقط requester می‌تواند درخواست را اصلاح کند
     if (request.requester_id !== userId) {
@@ -791,6 +864,10 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
       result.usbPorts = filesData;
     } else if (updatedRequest.request_type === 'APP_INSTALL') {
       result.appInstalls = filesData;
+    } else if (updatedRequest.request_type === 'SERVER_RESTART') {
+      result.serverRestarts = filesData;
+    } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
+      result.videoConferences = filesData;
     }
 
     res.json(result);
@@ -802,7 +879,7 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
 
 // Approve request
 router.put('/:id/approve', authenticateToken, async (req: Request, res: Response) => {
-  const { approvalNote } = req.body;
+  const { approvalNote, conferenceRoom } = req.body;
   try {
     const userId = (req as any).userId;
     const requestId = req.params.id;
@@ -867,6 +944,17 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       date: new Date().toISOString(),
     };
     
+    if (request.request_type === 'VIDEO_CONFRENCE') {
+      const room =
+        conferenceRoom !== undefined && conferenceRoom !== null
+          ? String(conferenceRoom).trim()
+          : '';
+      if (!room) {
+        return res.status(400).json({ error: 'برای تأیید درخواست ویدئو کنفرانس، شماره اتاق الزامی است' });
+      }
+      newApproval.conferenceRoom = room;
+    }
+
     if (approvalNote && approvalNote.trim()) {
       newApproval.approvalNote = approvalNote.trim();
     }
@@ -927,6 +1015,10 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       result.usbPorts = filesData;
     } else if (updatedRequest.request_type === 'APP_INSTALL') {
       result.appInstalls = filesData;
+    } else if (updatedRequest.request_type === 'SERVER_RESTART') {
+      result.serverRestarts = filesData;
+    } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
+      result.videoConferences = filesData;
     }
 
     res.json(result);
@@ -1060,6 +1152,10 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       result.usbPorts = filesData;
     } else if (updatedRequest.request_type === 'APP_INSTALL') {
       result.appInstalls = filesData;
+    } else if (updatedRequest.request_type === 'SERVER_RESTART') {
+      result.serverRestarts = filesData;
+    } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
+      result.videoConferences = filesData;
     }
 
     res.json(result);

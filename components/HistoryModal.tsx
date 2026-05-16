@@ -86,6 +86,8 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
           hasMatchingIP = request.usbPorts.some(usb => usb.serverIP?.includes(filterIP));
         } else if (request.requestType === RequestType.APP_INSTALL && request.appInstalls) {
           hasMatchingIP = request.appInstalls.some(app => app.serverIP?.includes(filterIP));
+        } else if (request.requestType === RequestType.SERVER_RESTART && request.serverRestarts) {
+          hasMatchingIP = request.serverRestarts.some(sr => sr.serverIP?.includes(filterIP));
         }
         if (!hasMatchingIP) { return false; }
       }
@@ -226,6 +228,8 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                 <option value="TAPE">Tape</option>
                 <option value="USB_PORT">USB Port</option>
                 <option value="APP_INSTALL">نصب برنامه</option>
+                <option value="SERVER_RESTART">ریستارت سرور</option>
+                <option value="VIDEO_CONFRENCE">ویدئو کنفرانس</option>
               </select>
             </div>
             
@@ -330,14 +334,16 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                       const isTape = request.requestType === RequestType.TAPE;
                       const isUSBPort = request.requestType === RequestType.USB_PORT;
                       const isAppInstall = request.requestType === RequestType.APP_INSTALL;
+                      const isServerRestart = request.requestType === RequestType.SERVER_RESTART;
+                      const isVideoConference = request.requestType === RequestType.VIDEO_CONFRENCE;
                       
                       return (
                         <React.Fragment key={request.id}>
                           <tr className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-blue-50' : 'bg-green-50'}`} onClick={() => toggleRow(request.id)}>
                             <td className="p-3 text-gray-800 font-semibold">#{request.id.split('-')[1]}</td>
                             <td className="p-3">
-                              <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : isTape ? 'bg-orange-100 text-orange-800' : isUSBPort ? 'bg-teal-100 text-teal-800' : isAppInstall ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
-                                {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : 'Backup'}
+                              <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : isTape ? 'bg-orange-100 text-orange-800' : isUSBPort ? 'bg-teal-100 text-teal-800' : isAppInstall ? 'bg-purple-100 text-purple-800' : isServerRestart ? 'bg-red-100 text-red-800' : isVideoConference ? 'bg-rose-100 text-rose-800' : 'bg-green-100 text-green-800'}`}>
+                                {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : 'Backup'}
                               </span>
                             </td>
                             <td className="p-3 text-gray-700">{request.requesterName}</td>
@@ -516,6 +522,45 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                               <div><strong className="text-gray-600">IP سرور:</strong> {appInstall.serverIP}</div>
                                               <div><strong className="text-gray-600">نام برنامه یا لینک:</strong> {appInstall.appNameOrLink}</div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {isServerRestart && request.serverRestarts && (
+                                    <div className="space-y-3">
+                                      {request.serverRestarts.map((sr, srIndex) => (
+                                        <div key={sr.id} className="p-3 bg-red-50 rounded-md border border-red-100">
+                                          <div className="font-bold text-gray-700 mb-2">ریستارت سرور {srIndex + 1}</div>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                            <div><strong className="text-gray-500">IP سرور:</strong> {sr.serverIP}</div>
+                                            <div>
+                                              <strong className="text-gray-500">زمان ریستارت:</strong>{' '}
+                                              {sr.isUrgent ? (
+                                                <span className="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-xs font-bold">فوری</span>
+                                              ) : (
+                                                sr.restartTime || '—'
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {isVideoConference && request.videoConferences && (
+                                    <div className="space-y-3">
+                                      {request.videoConferences.map((vc, vcIndex) => {
+                                        const bg = vcIndex % 2 === 0 ? 'bg-rose-50 border-rose-200' : 'bg-pink-50 border-pink-200';
+                                        return (
+                                          <div key={vc.id} className={`${bg} p-4 rounded border`}>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                              <div><strong className="text-gray-600">تاریخ برگزاری:</strong> {vc.scheduledDate ? new Date(vc.scheduledDate + 'T12:00:00').toLocaleDateString('fa-IR') : '—'}</div>
+                                              <div><strong className="text-gray-600">تعداد شرکت‌کننده:</strong> {vc.participantCount || '—'}</div>
+                                              <div><strong className="text-gray-600">ساعت شروع:</strong> {vc.startTime || '—'}</div>
+                                              <div><strong className="text-gray-600">ساعت پایان:</strong> {vc.endTime || '—'}</div>
                                             </div>
                                           </div>
                                         );

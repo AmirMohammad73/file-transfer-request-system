@@ -1,10 +1,14 @@
 export enum Role {
   REQUESTER = 'REQUESTER',
+  /** فقط مجاز به ثبت درخواست ویدئو کنفرانس */
+  V_REQUESTER = 'V_REQUESTER',
   GROUP_LEAD = 'GROUP_LEAD',
   DEPUTY = 'DEPUTY',
   NETWORK_HEAD = 'NETWORK_HEAD',
   NETWORK_ADMIN = 'NETWORK_ADMIN',
   NETWORK_USB_ADMIN = 'NETWORK_USB_ADMIN',
+  /** تأییدکنندهٔ درخواست ویدئو کنفرانس */
+  VC_ACCEPTER = 'VC_ACCEPTER',
 }
 
 export enum Status {
@@ -22,6 +26,9 @@ export enum RequestType {
   TAPE = 'TAPE',
   USB_PORT = 'USB_PORT',
   APP_INSTALL = 'APP_INSTALL',
+  /** مطابق نام enum در PostgreSQL */
+  VIDEO_CONFRENCE = 'VIDEO_CONFRENCE',
+  SERVER_RESTART = 'SERVER_RESTART',
 }
 
 export interface FileDetail {
@@ -75,6 +82,23 @@ export interface AppInstallDetail {
   appNameOrLink: string;
 }
 
+export interface VideoConferenceDetail {
+  id: string;
+  /** میلادی YYYY-MM-DD (همان قرارداد PersianDatePicker) */
+  scheduledDate: string;
+  startTime: string;
+  endTime: string;
+  participantCount: string;
+}
+
+export interface ServerRestartDetail {
+  id: string;
+  serverIP: string;
+  /** ساعت ۲۴ساعته HH:mm؛ در حالت فوری خالی است */
+  restartTime: string;
+  isUrgent: boolean;
+}
+
 export interface Approval {
   approverRole: Role;
   approverName: string;
@@ -82,6 +106,8 @@ export interface Approval {
   date: string;
   rejectionReason?: string;
   approvalNote?: string; // توضیحات اختیاری هنگام تایید
+  /** شماره اتاق؛ برای تأیید ویدئو کنفرانس */
+  conferenceRoom?: string;
   isFromPreviousVersion?: boolean; // برای نشان دادن تاییدهای نسخه قبلی
 }
 
@@ -96,6 +122,8 @@ export interface Request {
   tapes?: TapeDetail[];
   usbPorts?: USBPortDetail[];
   appInstalls?: AppInstallDetail[];
+  videoConferences?: VideoConferenceDetail[];
+  serverRestarts?: ServerRestartDetail[];
   status: Status;
   approvalHistory: Approval[];
   currentApprover: Role | null;

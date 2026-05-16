@@ -17,7 +17,16 @@ router.post('/register', async (req: Request, res: Response) => {
     }
 
     // Validate role enum
-    const validRoles = ['REQUESTER', 'GROUP_LEAD', 'DEPUTY', 'NETWORK_HEAD', 'NETWORK_ADMIN'];
+    const validRoles = [
+      'REQUESTER',
+      'V_REQUESTER',
+      'GROUP_LEAD',
+      'DEPUTY',
+      'NETWORK_HEAD',
+      'NETWORK_ADMIN',
+      'NETWORK_USB_ADMIN',
+      'VC_ACCEPTER',
+    ];
     if (!validRoles.includes(role)) {
       return res.status(400).json({ 
         error: `نقش نامعتبر است. نقش‌های معتبر: ${validRoles.join(', ')}` 

@@ -6,9 +6,12 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
-  onConfirm: (rejectionReason?: string) => void;
+  /** برای approve: آرگوی اول توضیحات، آرگوی دوم شماره اتاق (ویدئو کنفرانس) */
+  onConfirm: (approvalOrRejectionNote?: string, conferenceRoom?: string) => void;
   onCancel: () => void;
   type?: 'approve' | 'reject' | 'cancel';
+  /** تأیید ویدئو کنفرانس: شماره اتاق اجباری */
+  requireConferenceRoom?: boolean;
 }
 
 const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -20,9 +23,11 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onConfirm,
   onCancel,
   type = 'approve',
+  requireConferenceRoom = false,
 }) => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [approvalNote, setApprovalNote] = useState('');
+  const [conferenceRoom, setConferenceRoom] = useState('');
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
@@ -40,8 +45,15 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       }
       onConfirm(rejectionReason.trim());
     } else if (type === 'approve') {
-      // برای approve توضیحات اختیاری است
-      onConfirm(approvalNote.trim() || undefined);
+      if (requireConferenceRoom) {
+        if (!conferenceRoom.trim()) {
+          setError('لطفاً شماره اتاق را وارد کنید');
+          return;
+        }
+        onConfirm(approvalNote.trim() || undefined, conferenceRoom.trim());
+      } else {
+        onConfirm(approvalNote.trim() || undefined);
+      }
     } else {
       // برای cancel نیاز به دلیل نداریم
       onConfirm(undefined);
@@ -49,12 +61,14 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     
     setRejectionReason('');
     setApprovalNote('');
+    setConferenceRoom('');
     setError('');
   };
 
   const handleCancel = () => {
     setRejectionReason('');
     setApprovalNote('');
+    setConferenceRoom('');
     setError('');
     onCancel();
   };
@@ -107,6 +121,28 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                   {rejectionReason.length}/500 کاراکتر
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* شماره اتاق - تأیید ویدئو کنفرانس */}
+          {type === 'approve' && requireConferenceRoom && (
+            <div className="mb-4">
+              <label htmlFor="conference-room" className="block text-sm font-semibold text-gray-700 mb-2">
+                شماره اتاق <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="conference-room"
+                type="text"
+                value={conferenceRoom}
+                onChange={(e) => {
+                  setConferenceRoom(e.target.value);
+                  setError('');
+                }}
+                maxLength={200}
+                placeholder="مثال: اتاق جلسات ۳۱۲ یا لینک/کد سیستم"
+                className={`w-full p-3 border ${error ? 'border-red-500' : 'border-gray-300'} rounded-md focus:ring-2 focus:ring-[#2ecc71] focus:border-[#2ecc71]`}
+                autoFocus
+              />
             </div>
           )}
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Request, RequestType } from '../types';
+import { Request, RequestType, User } from '../types';
 import ApprovalStatus from './ApprovalStatus';
 import { XCircleIcon } from './icons';
 import ConfirmDialog from './ConfirmDialog';
@@ -7,11 +7,12 @@ import RequestForm from './RequestForm';
 
 interface RejectedRequestsListProps {
   requests: Request[];
+  currentUser: User;
   onCancel: (id: string) => void;
   onRevise: (id: string, data: any) => void;
 }
 
-const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, onCancel, onRevise }) => {
+const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, currentUser, onCancel, onRevise }) => {
   const [expandedRequest, setExpandedRequest] = useState<string | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
@@ -79,12 +80,7 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, o
         </div>
 
         <RequestForm 
-          currentUser={{
-            id: editingRequest.requesterId || 0,
-            name: editingRequest.requesterName,
-            department: editingRequest.department,
-            role: 'REQUESTER' as any,
-          }}
+          currentUser={currentUser}
           onSubmit={handleEditSubmit}
           initialData={{
             ...editingRequest,
@@ -92,6 +88,11 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, o
             files: editingRequest.files || [],
             backups: editingRequest.backups || [],
             vdis: editingRequest.vdis || [],
+            tapes: editingRequest.tapes || [],
+            usbPorts: editingRequest.usbPorts || [],
+            appInstalls: editingRequest.appInstalls || [],
+            serverRestarts: editingRequest.serverRestarts || [],
+            videoConferences: editingRequest.videoConferences || [],
           }}
           isEditing={true}
         />
@@ -146,6 +147,8 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, o
             const isTape = request.requestType === RequestType.TAPE;
             const isUSBPort = request.requestType === RequestType.USB_PORT;
             const isAppInstall = request.requestType === RequestType.APP_INSTALL;
+            const isServerRestart = request.requestType === RequestType.SERVER_RESTART;
+            const isVideoConference = request.requestType === RequestType.VIDEO_CONFRENCE;
             
             return (
               <div key={request.id} className={`bg-white border-2 rounded-lg shadow-sm transition-all ${
@@ -167,9 +170,11 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, o
                         isTape ? 'bg-orange-100 text-orange-800' :
                         isUSBPort ? 'bg-teal-100 text-teal-800' :
                         isAppInstall ? 'bg-purple-100 text-purple-800' :
+                        isServerRestart ? 'bg-red-100 text-red-800' :
+                        isVideoConference ? 'bg-rose-100 text-rose-800' :
                         'bg-green-100 text-green-800'
                       }`}>
-                        {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : 'Backup'}
+                        {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : 'Backup'}
                       </span>
                       <div className="text-sm text-gray-700">
                         {new Date(request.createdAt).toLocaleDateString('fa-IR')}
@@ -324,6 +329,35 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, o
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                               <div><strong className="text-gray-500">IP سرور:</strong> {appInstall.serverIP}</div>
                               <div><strong className="text-gray-500">نام برنامه یا لینک:</strong> {appInstall.appNameOrLink}</div>
+                            </div>
+                          </div>
+                        ))}
+
+                        {isServerRestart && request.serverRestarts && request.serverRestarts.map((sr, srIndex) => (
+                          <div key={sr.id} className="p-3 bg-red-50 rounded-md border border-red-100">
+                            <div className="font-bold text-gray-700 mb-2">ریستارت سرور {srIndex + 1}</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                              <div><strong className="text-gray-500">IP سرور:</strong> {sr.serverIP}</div>
+                              <div>
+                                <strong className="text-gray-500">زمان ریستارت:</strong>{' '}
+                                {sr.isUrgent ? (
+                                  <span className="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-xs font-bold">فوری</span>
+                                ) : (
+                                  sr.restartTime || '—'
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+
+                        {isVideoConference && request.videoConferences && request.videoConferences.map((vc, vcIndex) => (
+                          <div key={vc.id} className="p-3 bg-rose-50 rounded-md border border-rose-100">
+                            <div className="font-bold text-gray-700 mb-2">ویدئو کنفرانس {vcIndex + 1}</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                              <div><strong className="text-gray-500">تاریخ برگزاری:</strong> {vc.scheduledDate ? new Date(vc.scheduledDate + 'T12:00:00').toLocaleDateString('fa-IR') : '—'}</div>
+                              <div><strong className="text-gray-500">تعداد شرکت‌کننده:</strong> {vc.participantCount || '—'}</div>
+                              <div><strong className="text-gray-500">ساعت شروع:</strong> {vc.startTime || '—'}</div>
+                              <div><strong className="text-gray-500">ساعت پایان:</strong> {vc.endTime || '—'}</div>
                             </div>
                           </div>
                         ))}

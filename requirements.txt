@@ -79,6 +79,16 @@ ALTER TYPE request_type ADD VALUE 'VDI_OPEN';
 -- اضافه کردن NETWORK_USB_ADMIN به enum user_role
 ALTER TYPE user_role ADD VALUE 'NETWORK_USB_ADMIN';
 
+-- درخواست ویدئو کنفرانس (در صورت «already exists» نادیده بگیرید)
+ALTER TYPE request_type ADD VALUE 'VIDEO_CONFRENCE';
+
+-- نقش‌های ویدئو کنفرانس
+ALTER TYPE user_role ADD VALUE 'V_REQUESTER';
+ALTER TYPE user_role ADD VALUE 'VC_ACCEPTER';
+
+-- درخواست ریستارت سرور (در صورت «already exists» نادیده بگیرید)
+ALTER TYPE request_type ADD VALUE 'SERVER_RESTART';
+
 -- ============================================
 -- توجه: اگر enum user_role وجود ندارد، ابتدا آن را ایجاد کنید:
 -- ============================================
