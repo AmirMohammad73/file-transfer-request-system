@@ -4,6 +4,8 @@ import { SHOW_VIDEO_CONFERENCE_IN_MENU } from '../constants';
 import { PlusCircleIcon, SendIcon, Trash2Icon } from './icons';
 import { useToastContext } from './ToastContainer';
 import PersianDatePicker from './PersianDatePicker';
+import TimeInput24 from './TimeInput24';
+import { isValidTime24, normalizeTime24 } from '../utils/time24';
 
 interface RequestFormProps {
     currentUser: User;
@@ -92,7 +94,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
 
     const [serverRestarts, setServerRestarts] = useState<ServerRestartDetail[]>(
         initialData?.serverRestarts || savedData?.serverRestarts || [
-            { id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false },
+            { id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false, description: '' },
         ]
     );
 
@@ -246,7 +248,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const addServerRestart = () => {
         setServerRestarts([
             ...serverRestarts,
-            { id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false },
+            { id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false, description: '' },
         ]);
     };
 
@@ -484,13 +486,37 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         setIsSubmitting(false);
                         return;
                     }
-                    if (!sr.isUrgent && (!sr.restartTime || !sr.restartTime.trim())) {
-                        showToast('لطفاً «ساعت ریستارت» را وارد کنید یا گزینه «فوری» را انتخاب کنید.', 'warning');
+                    if (!sr.isUrgent) {
+                        if (!sr.restartTime?.trim()) {
+                            showToast('لطفاً «ساعت ریستارت» را وارد کنید یا گزینه «فوری» را انتخاب کنید.', 'warning');
+                            setIsSubmitting(false);
+                            return;
+                        }
+                        if (!isValidTime24(sr.restartTime)) {
+                            showToast('ساعت ریستارت باید بین ۰۰:۰۰ و ۲۳:۵۹ (۲۴ ساعته) باشد.', 'warning');
+                            setIsSubmitting(false);
+                            return;
+                        }
+                    }
+                    const desc = (sr.description || '').trim();
+                    if (!desc) {
+                        showToast('لطفاً فیلد «توضیحات» را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (desc.length > 100) {
+                        showToast('فیلد «توضیحات» حداکثر ۱۰۰ کاراکتر مجاز است.', 'warning');
                         setIsSubmitting(false);
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.SERVER_RESTART, serverRestarts });
+                onSubmit({
+                    type: RequestType.SERVER_RESTART,
+                    serverRestarts: serverRestarts.map((sr) => ({
+                        ...sr,
+                        restartTime: sr.isUrgent ? '' : normalizeTime24(sr.restartTime),
+                    })),
+                });
             } else if (requestType === RequestType.VIDEO_CONFRENCE) {
                 const timeToMinutes = (t: string): number => {
                     const parts = t.trim().split(':');
@@ -545,7 +571,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 setTapes([{ id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }]);
                 setUsbPorts([{ id: `usb-${Date.now()}`, serverIP: '', duration: '' }]);
                 setAppInstalls([{ id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }]);
-                setServerRestarts([{ id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false }]);
+                setServerRestarts([{ id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false, description: '' }]);
                 setVideoConferences([{ id: `vc-${Date.now()}`, scheduledDate: '', startTime: '', endTime: '', participantCount: '' }]);
             }
         } catch (error) {
@@ -1180,78 +1206,95 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
 
             {/* ریستارت سرور */}
             {requestType === RequestType.SERVER_RESTART && (
-                <div id="server-restart-container" className="space-y-5">
-                    {serverRestarts.map((sr, index) => (
-                        <div key={sr.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
-                            <div className="absolute -top-3 right-5 bg-[#c0392b] text-white px-3 py-1 text-sm font-bold rounded shadow-md">ریستارت سرور</div>
-                            <div className="flex justify-between items-center mt-3 mb-4">
-                                <div className="text-sm font-semibold text-gray-500">مشخصات {index + 1}</div>
-                                <div className="flex gap-2">
-                                    {serverRestarts.length > 1 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => removeServerRestart(sr.id)}
-                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                                        >
-                                            <Trash2Icon className="w-4 h-4" />
-                                            <span>حذف</span>
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
-                                        IP سرور <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={sr.serverIP}
-                                        onChange={(e) => handleServerRestartChange(index, 'serverIP', e.target.value)}
-                                        placeholder="مثال: 192.168.1.100"
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#c0392b]"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="font-semibold text-sm text-gray-700 block mb-1">
-                                        ساعت ریستارت (۲۴ ساعته) {!sr.isUrgent && <span className="text-red-500">*</span>}
-                                    </label>
-                                    <div className="flex items-center gap-3">
-                                        <input
-                                            type="time"
-                                            value={sr.restartTime}
-                                            onChange={(e) => handleServerRestartChange(index, 'restartTime', e.target.value)}
-                                            disabled={sr.isUrgent}
-                                            className="flex-1 p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#c0392b] disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
-                                            required={!sr.isUrgent}
-                                        />
-                                        <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none">
-                                            <input
-                                                type="checkbox"
-                                                checked={sr.isUrgent}
-                                                onChange={(e) => handleServerRestartChange(index, 'isUrgent', e.target.checked)}
-                                                className="w-4 h-4 rounded border-gray-300 text-[#c0392b] focus:ring-[#c0392b]"
-                                            />
-                                            <span className="font-semibold text-sm text-[#c0392b]">فوری</span>
-                                        </label>
-                                    </div>
-                                    {sr.isUrgent && (
-                                        <p className="text-xs text-[#c0392b] mt-1 font-medium">ریستارت باید فوری انجام شود.</p>
-                                    )}
-                                </div>
-                            </div>
+            <div id="server-restart-container" className="space-y-5">
+                {serverRestarts.map((sr, index) => (
+                <div key={sr.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                    <div className="absolute -top-3 right-5 bg-[#c0392b] text-white px-3 py-1 text-sm font-bold rounded shadow-md">ریستارت سرور</div>
+                    <div className="flex justify-between items-center mt-3 mb-4">
+                    <div className="text-sm font-semibold text-gray-500">مشخصات {index + 1}</div>
+                    <div className="flex gap-2">
+                        {serverRestarts.length > 1 && (
+                        <button
+                            type="button"
+                            onClick={() => removeServerRestart(sr.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                        >
+                            <Trash2Icon className="w-4 h-4" />
+                            <span>حذف</span>
+                        </button>
+                        )}
+                    </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="font-semibold text-sm text-gray-700 block mb-1">
+                        IP سرور <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                        type="text"
+                        value={sr.serverIP}
+                        onChange={(e) => handleServerRestartChange(index, 'serverIP', e.target.value)}
+                        placeholder="مثال: 192.168.1.100"
+                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#c0392b]"
+                        required
+                        />
+                    </div>
+                    <div>
+                        <label className="font-semibold text-sm text-gray-700 block mb-1">
+                        ساعت ریستارت {!sr.isUrgent && <span className="text-red-500">*</span>}
+                        </label>
+                        {/* تغییر در خط زیر اعمال شد: اضافه کردن w-full و justify-start */}
+                        <div className="flex items-center gap-3 w-full justify-start">
+                        <TimeInput24
+                            value={sr.restartTime}
+                            onChange={(v) => handleServerRestartChange(index, 'restartTime', v)}
+                            disabled={sr.isUrgent}
+                            required={!sr.isUrgent}
+                        />
+                        <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none">
+                            <input
+                            type="checkbox"
+                            checked={sr.isUrgent}
+                            onChange={(e) => handleServerRestartChange(index, 'isUrgent', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-[#c0392b] focus:ring-[#c0392b]"
+                            />
+                            <span className="font-semibold text-sm text-[#c0392b]">فوری</span>
+                        </label>
                         </div>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={addServerRestart}
-                        className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#c0392b] rounded-lg text-[#c0392b] font-semibold hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#c0392b] focus:ring-offset-2"
-                    >
-                        <PlusCircleIcon className="w-5 h-5" />
-                        <span>افزودن رکورد جدید</span>
-                    </button>
+                        {sr.isUrgent && (
+                        <p className="text-xs text-[#c0392b] mt-1 font-medium">ریستارت باید فوری انجام شود.</p>
+                        )}
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="font-semibold text-sm text-gray-700 block mb-1">
+                        توضیحات <span className="text-red-500">*</span>
+                        <span className="text-gray-400 font-normal mr-1">(حداکثر ۱۰۰ کاراکتر)</span>
+                        </label>
+                        <textarea
+                        value={sr.description}
+                        onChange={(e) => handleServerRestartChange(index, 'description', e.target.value.slice(0, 100))}
+                        placeholder="توضیحات مربوط به ریستارت سرور"
+                        maxLength={100}
+                        rows={3}
+                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#c0392b] resize-y"
+                        required
+                        />
+                        <p className="text-xs text-gray-500 mt-1 text-left" dir="ltr">
+                        {(sr.description || '').length}/100
+                        </p>
+                    </div>
+                    </div>
                 </div>
+                ))}
+                <button
+                type="button"
+                onClick={addServerRestart}
+                className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#c0392b] rounded-lg text-[#c0392b] font-semibold hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#c0392b] focus:ring-offset-2"
+                >
+                <PlusCircleIcon className="w-5 h-5" />
+                <span>افزودن رکورد جدید</span>
+                </button>
+            </div>
             )}
 
             {/* ویدئو کنفرانس */}

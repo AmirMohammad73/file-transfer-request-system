@@ -97,6 +97,8 @@ export interface ServerRestartDetail {
   /** ساعت ۲۴ساعته HH:mm؛ در حالت فوری خالی است */
   restartTime: string;
   isUrgent: boolean;
+  /** توضیحات؛ الزامی، حداکثر ۱۰۰ کاراکتر */
+  description: string;
 }
 
 export interface Approval {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Request, RequestType, Status } from '../types';
+import { formatTime24Display } from '../utils/time24';
 import { STATUS_STYLES } from '../constants';
 import ApprovalStatus from './ApprovalStatus';
 import { requestsAPI } from '../utils/api';
@@ -541,9 +542,10 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                               {sr.isUrgent ? (
                                                 <span className="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-xs font-bold">فوری</span>
                                               ) : (
-                                                sr.restartTime || '—'
+                                                formatTime24Display(sr.restartTime)
                                               )}
                                             </div>
+                                            <div className="md:col-span-2"><strong className="text-gray-500">توضیحات:</strong> {sr.description || '—'}</div>
                                           </div>
                                         </div>
                                       ))}

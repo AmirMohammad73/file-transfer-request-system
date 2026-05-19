@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Request, User, Role, RequestType } from '../types';
+import { formatTime24Display } from '../utils/time24';
 import ApprovalStatus from './ApprovalStatus';
 import { CheckCircleIcon, XCircleIcon } from './icons';
 import ConfirmDialog from './ConfirmDialog';
@@ -306,9 +307,10 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                                   {sr.isUrgent ? (
                                     <span className="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-xs font-bold">فوری</span>
                                   ) : (
-                                    sr.restartTime || '—'
+                                    formatTime24Display(sr.restartTime)
                                   )}
                                 </div>
+                                <div className="md:col-span-2"><strong className="text-gray-500">توضیحات:</strong> {sr.description || '—'}</div>
                               </div>
                             </div>
                           ))}

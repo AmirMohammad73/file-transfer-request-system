@@ -449,8 +449,21 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         if (!item.serverIP || !String(item.serverIP).trim()) {
           return res.status(400).json({ error: 'IP سرور الزامی است' });
         }
-        if (!item.isUrgent && (!item.restartTime || !String(item.restartTime).trim())) {
-          return res.status(400).json({ error: 'ساعت ریستارت الزامی است مگر اینکه گزینه فوری انتخاب شده باشد' });
+        if (!item.isUrgent) {
+          const restartTime = String(item.restartTime || '').trim();
+          if (!restartTime) {
+            return res.status(400).json({ error: 'ساعت ریستارت الزامی است مگر اینکه گزینه فوری انتخاب شده باشد' });
+          }
+          if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(restartTime)) {
+            return res.status(400).json({ error: 'ساعت ریستارت باید به صورت ۲۴ ساعته بین ۰۰:۰۰ و ۲۳:۵۹ باشد' });
+          }
+        }
+        const description = String(item.description || '').trim();
+        if (!description) {
+          return res.status(400).json({ error: 'توضیحات الزامی است' });
+        }
+        if (description.length > 100) {
+          return res.status(400).json({ error: 'توضیحات حداکثر ۱۰۰ کاراکتر مجاز است' });
         }
       }
       dataToStore = serverRestarts;
@@ -743,8 +756,21 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
         if (!item.serverIP || !String(item.serverIP).trim()) {
           return res.status(400).json({ error: 'IP سرور الزامی است' });
         }
-        if (!item.isUrgent && (!item.restartTime || !String(item.restartTime).trim())) {
-          return res.status(400).json({ error: 'ساعت ریستارت الزامی است مگر اینکه گزینه فوری انتخاب شده باشد' });
+        if (!item.isUrgent) {
+          const restartTime = String(item.restartTime || '').trim();
+          if (!restartTime) {
+            return res.status(400).json({ error: 'ساعت ریستارت الزامی است مگر اینکه گزینه فوری انتخاب شده باشد' });
+          }
+          if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(restartTime)) {
+            return res.status(400).json({ error: 'ساعت ریستارت باید به صورت ۲۴ ساعته بین ۰۰:۰۰ و ۲۳:۵۹ باشد' });
+          }
+        }
+        const description = String(item.description || '').trim();
+        if (!description) {
+          return res.status(400).json({ error: 'توضیحات الزامی است' });
+        }
+        if (description.length > 100) {
+          return res.status(400).json({ error: 'توضیحات حداکثر ۱۰۰ کاراکتر مجاز است' });
         }
       }
       dataToStore = serverRestarts;
