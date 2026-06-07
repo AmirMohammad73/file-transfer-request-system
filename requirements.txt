@@ -102,3 +102,214 @@ ALTER TYPE request_type ADD VALUE 'SERVER_RESTART';
 -- );
 -- ============================================
 
+
+-- ============================================
+-- تغییرات دیتابیس برای ماژول شناسنامه سرورها
+-- تاریخ اعمال: بعد از پیاده‌سازی ماژول مدیریت سامانه‌ها
+-- ============================================
+
+-- ── ۱. اضافه کردن ستون system_name به جدول contractor ──────────────────────
+-- نام سامانه متعلق به پیمانکار است (نه سرور)
+ALTER TABLE contractor
+ADD COLUMN IF NOT EXISTS system_name VARCHAR(255);
+
+-- ── ۲. اضافه کردن ستون req_user_ids به جدول contractor ────────────────────
+-- برای نگهداری آرایه‌ای از idهای کاربران مالک این سامانه
+ALTER TABLE contractor
+ADD COLUMN IF NOT EXISTS req_user_ids JSONB DEFAULT '[]'::JSONB;
+
+-- اعمال محدودیت برای معتبر بودن JSON به صورت آرایه
+ALTER TABLE contractor
+ADD CONSTRAINT IF NOT EXISTS valid_req_user_ids_contractor
+CHECK (jsonb_typeof(req_user_ids) = 'array');
+
+-- ── ۳. تغییر ساختار جدول backup_resources ──────────────────────────────────
+-- حذف ستون‌های قدیمی که دیگر استفاده نمی‌شوند:
+--   contractor_ids  (آرایه JSONB — جایگزین شده با contractor_id)
+--   req_user_ids    (آرایه JSONB — به جدول contractor منتقل شد)
+--   system_name     (به جدول contractor منتقل شد)
+
+-- اضافه کردن کلید خارجی contractor_id
+ALTER TABLE backup_resources
+ADD COLUMN IF NOT EXISTS contractor_id INTEGER REFERENCES contractor(id) ON DELETE SET NULL;
+
+-- حذف ستون‌های قدیمی (پس از مطمئن شدن از migration داده‌ها)
+-- ALTER TABLE backup_resources DROP COLUMN IF EXISTS contractor_ids;
+-- ALTER TABLE backup_resources DROP COLUMN IF EXISTS req_user_ids;
+-- ALTER TABLE backup_resources DROP COLUMN IF EXISTS system_name;
+
+-- ── ۴. ساختار نهایی جداول ──────────────────────────────────────────────────
+-- جدول contractor (سامانه + پیمانکار):
+--   id            SERIAL PRIMARY KEY
+--   system_name   VARCHAR(255)          -- نام سامانه (اجباری در UI)
+--   cont_name     VARCHAR(255)          -- نام پیمانکار
+--   rep_name      VARCHAR(255)          -- نام نماینده
+--   phone         VARCHAR(12)           -- شماره تماس
+--   req_user_ids  JSONB DEFAULT '[]'    -- آرایه idهای کاربران مالک
+
+-- جدول backup_resources (سرورها):
+--   id               SERIAL PRIMARY KEY
+--   ip               INET NOT NULL       -- آدرس IP (اجباری)
+--   vmname           VARCHAR(255) NOT NULL
+--   url              VARCHAR(255)
+--   type             VARCHAR(50)
+--   backup_operator  VARCHAR(255)
+--   backup_period    VARCHAR(255)
+--   contractor_id    INTEGER REFERENCES contractor(id) ON DELETE SET NULL
+
+-- ── ۵. ایندکس پیشنهادی برای بهبود کارایی ──────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_backup_resources_contractor_id
+ON backup_resources(contractor_id);
+
+-- ── ۶. نکته مهم درباره migration داده‌های قدیمی ───────────────────────────
+-- اگر داده‌های قدیمی در backup_resources با contractor_ids (JSONB) دارید،
+-- باید آن‌ها را به contractor_id (INTEGER) تبدیل کنید:
+--
+-- UPDATE backup_resources br
+-- SET contractor_id = (
+--   SELECT (jsonb_array_elements_text(br.contractor_ids))::integer
+--   LIMIT 1
+-- )
+-- WHERE br.contractor_ids != '[]'::jsonb
+--   AND br.contractor_id IS NULL;
+-- ============================================
+
+-- ============================================
+-- تغییرات جدول contractor برای پشتیبانی از ۳ نماینده
+-- ============================================
+
+-- حذف ستون‌های قدیمی (rep_name و phone) و جایگزینی با ستون‌های شماره‌دار
+-- اگر ستون‌های قدیمی وجود دارند:
+ALTER TABLE contractor RENAME COLUMN rep_name TO rep_name1;
+ALTER TABLE contractor RENAME COLUMN phone TO phone1;
+
+-- اضافه کردن نماینده دوم و سوم
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS rep_name2 VARCHAR(255);
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS phone2 VARCHAR(12);
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS rep_name3 VARCHAR(255);
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS phone3 VARCHAR(12);
+
+-- اگر ستون rep_name1 از قبل وجود ندارد (جدول تازه):
+-- ALTER TABLE contractor ADD COLUMN IF NOT EXISTS rep_name1 VARCHAR(255);
+-- ALTER TABLE contractor ADD COLUMN IF NOT EXISTS phone1 VARCHAR(12);
+
+-- ============================================
+-- منطق دسترسی گروهی
+-- ============================================
+-- هیچ تغییر دیتابیسی نیاز نیست.
+-- منطق دسترسی در سرور پیاده‌سازی شده:
+-- - کاربر با group_ids={0}: دسترسی کامل به همه سامانه‌ها
+-- - کاربر همگروه با ثبت‌کننده: می‌تواند ببیند
+-- - فقط ثبت‌کننده یا کاربر با group_ids={0}: می‌تواند ویرایش/حذف کند
+-- ============================================
+
+-- ============================================================
+-- مجموعه کامل تغییرات دیتابیس برای ماژول شناسنامه سرورها
+-- (نسخه نهایی — همه دستورات را به ترتیب اجرا کنید)
+-- ============================================================
+
+-- ────────────────────────────────────────────────────────────
+-- مرحله ۱: تغییرات جدول contractor
+-- ────────────────────────────────────────────────────────────
+
+-- ۱-الف) اضافه کردن ستون نام سامانه
+ALTER TABLE contractor
+  ADD COLUMN IF NOT EXISTS system_name VARCHAR(255);
+
+-- ۱-ب) اضافه کردن ستون req_user_ids (آرایه idهای کاربران مالک)
+ALTER TABLE contractor
+  ADD COLUMN IF NOT EXISTS req_user_ids JSONB DEFAULT '[]'::JSONB;
+
+-- ۱-ج) محدودیت معتبر بودن JSON به صورت آرایه
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'valid_req_user_ids_contractor'
+  ) THEN
+    ALTER TABLE contractor
+      ADD CONSTRAINT valid_req_user_ids_contractor
+      CHECK (jsonb_typeof(req_user_ids) = 'array');
+  END IF;
+END $$;
+
+-- ۱-د) تبدیل ستون‌های نماینده به فرمت شماره‌دار (rep_name1, phone1, ...)
+--
+-- اگر جدول contractor از قبل ستون‌های rep_name و phone دارد:
+ALTER TABLE contractor RENAME COLUMN rep_name TO rep_name1;
+ALTER TABLE contractor RENAME COLUMN phone    TO phone1;
+--
+-- اگر ستون‌های rep_name و phone وجود ندارند (جدول تازه):
+-- ALTER TABLE contractor ADD COLUMN IF NOT EXISTS rep_name1 VARCHAR(255);
+-- ALTER TABLE contractor ADD COLUMN IF NOT EXISTS phone1    VARCHAR(12);
+
+-- ۱-ه) اضافه کردن نماینده دوم و سوم
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS rep_name2 VARCHAR(255);
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS phone2    VARCHAR(12);
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS rep_name3 VARCHAR(255);
+ALTER TABLE contractor ADD COLUMN IF NOT EXISTS phone3    VARCHAR(12);
+
+-- ────────────────────────────────────────────────────────────
+-- مرحله ۲: تغییرات جدول backup_resources
+-- ────────────────────────────────────────────────────────────
+
+-- ۲-الف) اضافه کردن کلید خارجی contractor_id
+ALTER TABLE backup_resources
+  ADD COLUMN IF NOT EXISTS contractor_id INTEGER
+  REFERENCES contractor(id) ON DELETE SET NULL;
+
+-- ۲-ب) ایندکس برای بهبود کارایی JOIN
+CREATE INDEX IF NOT EXISTS idx_backup_resources_contractor_id
+  ON backup_resources(contractor_id);
+
+-- ۲-ج) اطمینان از NOT NULL بودن vmname (اجباری در UI)
+--      اگر داده‌های قدیمی با vmname=NULL دارید، ابتدا آن‌ها را پر کنید:
+-- UPDATE backup_resources SET vmname = ip::text WHERE vmname IS NULL;
+-- سپس:
+-- ALTER TABLE backup_resources ALTER COLUMN vmname SET NOT NULL;
+
+-- ۲-د) حذف ستون‌های قدیمی (فقط پس از migration داده‌ها)
+-- ALTER TABLE backup_resources DROP COLUMN IF EXISTS contractor_ids;
+-- ALTER TABLE backup_resources DROP COLUMN IF EXISTS req_user_ids;
+-- ALTER TABLE backup_resources DROP COLUMN IF EXISTS system_name;
+
+-- ────────────────────────────────────────────────────────────
+-- مرحله ۳: migration داده‌های قدیمی (در صورت وجود)
+-- ────────────────────────────────────────────────────────────
+
+-- اگر backup_resources داده‌های قدیمی با contractor_ids (JSONB) دارد:
+-- UPDATE backup_resources br
+-- SET contractor_id = (
+--   SELECT (jsonb_array_elements_text(br.contractor_ids))::integer
+--   LIMIT 1
+-- )
+-- WHERE br.contractor_ids IS NOT NULL
+--   AND br.contractor_ids != '[]'::jsonb
+--   AND br.contractor_id IS NULL;
+
+-- ────────────────────────────────────────────────────────────
+-- ساختار نهایی جداول (برای مرجع)
+-- ────────────────────────────────────────────────────────────
+--
+-- جدول contractor:
+--   id           SERIAL PRIMARY KEY
+--   cont_name    VARCHAR(255)
+--   rep_name1    VARCHAR(255)   -- نماینده اول (اجباری در UI)
+--   phone1       VARCHAR(12)    -- تماس نماینده اول (اجباری در UI)
+--   rep_name2    VARCHAR(255)   -- نماینده دوم (اختیاری)
+--   phone2       VARCHAR(12)
+--   rep_name3    VARCHAR(255)   -- نماینده سوم (اختیاری)
+--   phone3       VARCHAR(12)
+--   system_name  VARCHAR(255)   -- نام سامانه (اجباری در UI)
+--   req_user_ids JSONB DEFAULT '[]'  -- آرایه id کاربران مالک
+--
+-- جدول backup_resources:
+--   id               SERIAL PRIMARY KEY
+--   ip               INET NOT NULL
+--   vmname           VARCHAR(255) NOT NULL   -- اجباری در UI
+--   url              VARCHAR(255)
+--   type             VARCHAR(50)             -- نوع کاربری: بکاپ، دیتابیس، SQL...
+--   backup_operator  VARCHAR(255)
+--   backup_period    VARCHAR(255)
+--   contractor_id    INTEGER REFERENCES contractor(id) ON DELETE SET NULL
+-- ============================================================

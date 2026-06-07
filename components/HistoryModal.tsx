@@ -473,7 +473,8 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                               <div><strong className="text-gray-600">نام فایل یا فولدر:</strong> {vdi.fileOrFolderName || '—'}</div>
                                               <div><strong className="text-gray-600">آدرس مبدا:</strong> {vdi.sourceAddress || '—'}</div>
                                               <div><strong className="text-gray-600">آدرس مقصد:</strong> {vdi.destinationAddress || '—'}</div>
-                                              <div className="md:col-span-2"><strong className="text-gray-600">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
+                                              <div><strong className="text-gray-600">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
+                                              {vdi.portNumber && <div><strong className="text-gray-600">شماره پورت:</strong> {vdi.portNumber}</div>}
                                             </div>
                                           </div>
                                         );
@@ -570,6 +571,12 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                     </div>
                                   )}
                                   
+                                  {request.selectedServerName && (
+                                    <div className="p-3 bg-teal-50 rounded-md border border-teal-200 text-sm">
+                                      <strong className="text-gray-600">نام سامانه:</strong> {request.selectedServerName}
+                                    </div>
+                                  )}
+
                                   <ApprovalStatus request={request} />
                                 </div>
                               </td>

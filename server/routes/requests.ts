@@ -22,6 +22,126 @@ function getApprovalHierarchy(requestType: string): string[] {
   }
 }
 
+// Helper: map a DB row to a request object
+function mapRowToRequest(row: any): any {
+  const filesData = typeof row.files === 'string'
+    ? JSON.parse(row.files)
+    : (Array.isArray(row.files) ? row.files : null);
+
+  const approvalHistoryData = typeof row.approval_history === 'string'
+    ? JSON.parse(row.approval_history)
+    : (Array.isArray(row.approval_history) ? row.approval_history : []);
+
+  const previousVersionsData = row.previous_versions
+    ? (typeof row.previous_versions === 'string' ? JSON.parse(row.previous_versions) : row.previous_versions)
+    : [];
+
+  // selectedServerId و selectedServerName از اولین آیتم JSONB خوانده می‌شوند
+  const firstItem = Array.isArray(filesData) && filesData.length > 0 ? filesData[0] : null;
+  const selectedServerId = firstItem?.selectedServerId || null;
+  const selectedServerName = firstItem?.selectedServerName || null;
+
+  const obj: any = {
+    id: row.id,
+    requesterName: row.requester_name,
+    department: row.department,
+    requestType: row.request_type,
+    selectedServerId,
+    selectedServerName,
+    status: row.status,
+    currentApprover: row.current_approver,
+    approvalHistory: approvalHistoryData,
+    rejectionReason: row.rejection_reason,
+    createdAt: row.created_at,
+    requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
+    requesterId: row.requester_id,
+    isRevised: row.is_revised || false,
+    revisionCount: row.revision_count || 0,
+    previousVersions: previousVersionsData,
+  };
+
+  if (row.request_type === 'FILE_TRANSFER') {
+    obj.files = filesData;
+  } else if (row.request_type === 'BACKUP') {
+    obj.backups = filesData;
+  } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
+    obj.vdis = filesData;
+  } else if (row.request_type === 'TAPE') {
+    obj.tapes = filesData;
+  } else if (row.request_type === 'USB_PORT') {
+    obj.usbPorts = filesData;
+  } else if (row.request_type === 'APP_INSTALL') {
+    obj.appInstalls = filesData;
+  } else if (row.request_type === 'SERVER_RESTART') {
+    obj.serverRestarts = filesData;
+  } else if (row.request_type === 'VIDEO_CONFRENCE') {
+    obj.videoConferences = filesData;
+  }
+
+  return obj;
+}
+
+async function attachSelectedServerMetadata(
+  selectedServerId: number | undefined | null,
+  dataToStore: any[] | null
+): Promise<{ data: any[] | null; selectedServerName: string | null }> {
+  if (!selectedServerId || !dataToStore) {
+    return { data: dataToStore, selectedServerName: null };
+  }
+  const serverResult = await pool.query(
+    'SELECT system_name FROM contractor WHERE id = $1',
+    [selectedServerId]
+  );
+  const selectedServerName = serverResult.rows[0]?.system_name || null;
+  const data = dataToStore.map((item: any) => ({
+    ...item,
+    selectedServerId,
+    selectedServerName,
+  }));
+  return { data, selectedServerName };
+}
+
+async function enrichRequestsWithServerNames(requests: any[]): Promise<any[]> {
+  const idsNeedingName = [
+    ...new Set(
+      requests
+        .filter((r) => r.selectedServerId && !r.selectedServerName)
+        .map((r) => r.selectedServerId)
+    ),
+  ];
+  if (idsNeedingName.length === 0) return requests;
+
+  const result = await pool.query(
+    'SELECT id, system_name FROM contractor WHERE id = ANY($1::int[])',
+    [idsNeedingName]
+  );
+  const nameMap = new Map(result.rows.map((r) => [r.id, r.system_name]));
+
+  return requests.map((r) => ({
+    ...r,
+    selectedServerName: r.selectedServerName || nameMap.get(r.selectedServerId) || null,
+  }));
+}
+
+// Shared SELECT columns (بدون selected_server_id — داخل JSONB ذخیره می‌شود)
+const REQUEST_SELECT = `
+  r.id,
+  r.requester_id,
+  r.requester_name,
+  r.department,
+  r.request_type,
+  r.files,
+  r.status,
+  r.current_approver,
+  r.approval_history,
+  r.rejection_reason,
+  r.created_at,
+  r.is_revised,
+  r.revision_count,
+  r.previous_versions,
+  u.group_ids as requester_group_ids
+`;
+
 // Get all requests (filtered based on user role) - NOT CANCELLED
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
@@ -40,22 +160,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     const userGroupIds = user.group_ids || [];
 
     let query = `
-      SELECT 
-        r.id,
-        r.requester_id,
-        r.requester_name,
-        r.department,
-        r.request_type,
-        r.files,
-        r.status,
-        r.current_approver,
-        r.approval_history,
-        r.rejection_reason,
-        r.created_at,
-        r.is_revised,
-        r.revision_count,
-        r.previous_versions,
-        u.group_ids as requester_group_ids
+      SELECT ${REQUEST_SELECT}
       FROM requests r
       LEFT JOIN req_users u ON r.requester_id = u.id
       WHERE r.status != 'CANCELLED'
@@ -88,59 +193,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     query += ` ORDER BY r.created_at DESC`;
 
     const result = await pool.query(query, params);
-
-    const requests = result.rows.map((row) => {
-      const filesData = typeof row.files === 'string' 
-        ? JSON.parse(row.files) 
-        : (Array.isArray(row.files) ? row.files : null);
-      
-      const approvalHistoryData = typeof row.approval_history === 'string'
-        ? JSON.parse(row.approval_history)
-        : (Array.isArray(row.approval_history) ? row.approval_history : []);
-
-      const previousVersionsData = row.previous_versions 
-        ? (typeof row.previous_versions === 'string' ? JSON.parse(row.previous_versions) : row.previous_versions)
-        : [];
-
-      const baseRequest: any = {
-        id: row.id,
-        requesterName: row.requester_name,
-        department: row.department,
-        requestType: row.request_type,
-        status: row.status,
-        currentApprover: row.current_approver,
-        approvalHistory: approvalHistoryData,
-        rejectionReason: row.rejection_reason,
-        createdAt: row.created_at,
-        requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
-        requesterId: row.requester_id,
-        isRevised: row.is_revised || false,
-        revisionCount: row.revision_count || 0,
-        previousVersions: previousVersionsData,
-      };
-
-      if (row.request_type === 'FILE_TRANSFER') {
-        baseRequest.files = filesData;
-      } else if (row.request_type === 'BACKUP') {
-        baseRequest.backups = filesData;
-      } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
-        baseRequest.vdis = filesData;
-      } else if (row.request_type === 'TAPE') {
-        baseRequest.tapes = filesData;
-      } else if (row.request_type === 'USB_PORT') {
-        baseRequest.usbPorts = filesData;
-      } else if (row.request_type === 'APP_INSTALL') {
-        baseRequest.appInstalls = filesData;
-      } else if (row.request_type === 'SERVER_RESTART') {
-        baseRequest.serverRestarts = filesData;
-      } else if (row.request_type === 'VIDEO_CONFRENCE') {
-        baseRequest.videoConferences = filesData;
-      }
-
-      return baseRequest;
-    });
-
-    res.json(requests);
+    res.json(await enrichRequestsWithServerNames(result.rows.map(mapRowToRequest)));
   } catch (error: any) {
     console.error('Get requests error:', error);
     res.status(500).json({ error: 'خطا در دریافت درخواست‌ها' });
@@ -152,97 +205,24 @@ router.get('/rejected', authenticateToken, async (req: Request, res: Response) =
   try {
     const userId = (req as any).userId;
 
-    const userResult = await pool.query(
-      'SELECT role FROM req_users WHERE id = $1',
-      [userId]
-    );
-
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'کاربر یافت نشد' });
-    }
+    const userResult = await pool.query('SELECT role FROM req_users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'کاربر یافت نشد' });
 
     const user = userResult.rows[0];
-
     if (user.role !== 'REQUESTER' && user.role !== 'V_REQUESTER') {
       return res.status(403).json({ error: 'فقط کاربران درخواست‌دهنده می‌توانند درخواست‌های رد شده را ببینند' });
     }
 
     const result = await pool.query(
-      `SELECT 
-        r.id,
-        r.requester_id,
-        r.requester_name,
-        r.department,
-        r.request_type,
-        r.files,
-        r.status,
-        r.current_approver,
-        r.approval_history,
-        r.rejection_reason,
-        r.created_at,
-        r.is_revised,
-        r.revision_count,
-        r.previous_versions,
-        u.group_ids as requester_group_ids
-      FROM requests r
-      LEFT JOIN req_users u ON r.requester_id = u.id
-      WHERE r.requester_id = $1 AND r.status = 'REJECTED'
-      ORDER BY r.created_at DESC`,
+      `SELECT ${REQUEST_SELECT}
+       FROM requests r
+       LEFT JOIN req_users u ON r.requester_id = u.id
+       WHERE r.requester_id = $1 AND r.status = 'REJECTED'
+       ORDER BY r.created_at DESC`,
       [userId]
     );
 
-    const requests = result.rows.map((row) => {
-      const filesData = typeof row.files === 'string' 
-        ? JSON.parse(row.files) 
-        : (Array.isArray(row.files) ? row.files : null);
-      
-      const approvalHistoryData = typeof row.approval_history === 'string'
-        ? JSON.parse(row.approval_history)
-        : (Array.isArray(row.approval_history) ? row.approval_history : []);
-
-      const previousVersionsData = row.previous_versions 
-        ? (typeof row.previous_versions === 'string' ? JSON.parse(row.previous_versions) : row.previous_versions)
-        : [];
-
-      const baseRequest: any = {
-        id: row.id,
-        requesterName: row.requester_name,
-        department: row.department,
-        requestType: row.request_type,
-        status: row.status,
-        currentApprover: row.current_approver,
-        approvalHistory: approvalHistoryData,
-        rejectionReason: row.rejection_reason,
-        createdAt: row.created_at,
-        requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
-        requesterId: row.requester_id,
-        isRevised: row.is_revised || false,
-        revisionCount: row.revision_count || 0,
-        previousVersions: previousVersionsData,
-      };
-
-      if (row.request_type === 'FILE_TRANSFER') {
-        baseRequest.files = filesData;
-      } else if (row.request_type === 'BACKUP') {
-        baseRequest.backups = filesData;
-      } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
-        baseRequest.vdis = filesData;
-      } else if (row.request_type === 'TAPE') {
-        baseRequest.tapes = filesData;
-      } else if (row.request_type === 'USB_PORT') {
-        baseRequest.usbPorts = filesData;
-      } else if (row.request_type === 'APP_INSTALL') {
-        baseRequest.appInstalls = filesData;
-      } else if (row.request_type === 'SERVER_RESTART') {
-        baseRequest.serverRestarts = filesData;
-      } else if (row.request_type === 'VIDEO_CONFRENCE') {
-        baseRequest.videoConferences = filesData;
-      }
-
-      return baseRequest;
-    });
-
-    res.json(requests);
+    res.json(await enrichRequestsWithServerNames(result.rows.map(mapRowToRequest)));
   } catch (error: any) {
     console.error('Get rejected requests error:', error);
     res.status(500).json({ error: 'خطا در دریافت درخواست‌های رد شده' });
@@ -273,22 +253,7 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     let paramCount = 0;
 
     let query = `
-      SELECT 
-        r.id,
-        r.requester_id,
-        r.requester_name,
-        r.department,
-        r.request_type,
-        r.files,
-        r.status,
-        r.current_approver,
-        r.approval_history,
-        r.rejection_reason,
-        r.created_at,
-        r.is_revised,
-        r.revision_count,
-        r.previous_versions,
-        u.group_ids as requester_group_ids
+      SELECT ${REQUEST_SELECT}
       FROM requests r
       LEFT JOIN req_users u ON r.requester_id = u.id
       WHERE (
@@ -340,59 +305,7 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     `;
 
     const result = await pool.query(query, params);
-
-    const requests = result.rows.map((row) => {
-      const filesData = typeof row.files === 'string' 
-        ? JSON.parse(row.files) 
-        : (Array.isArray(row.files) ? row.files : null);
-      
-      const approvalHistoryData = typeof row.approval_history === 'string'
-        ? JSON.parse(row.approval_history)
-        : (Array.isArray(row.approval_history) ? row.approval_history : []);
-
-      const previousVersionsData = row.previous_versions 
-        ? (typeof row.previous_versions === 'string' ? JSON.parse(row.previous_versions) : row.previous_versions)
-        : [];
-
-      const result: any = {
-        id: row.id,
-        requesterName: row.requester_name,
-        department: row.department,
-        requestType: row.request_type,
-        status: row.status,
-        currentApprover: row.current_approver,
-        approvalHistory: approvalHistoryData,
-        rejectionReason: row.rejection_reason,
-        createdAt: row.created_at,
-        requesterGroupId: row.requester_group_ids && row.requester_group_ids.length > 0 ? row.requester_group_ids[0] : null,
-        requesterId: row.requester_id,
-        isRevised: row.is_revised || false,
-        revisionCount: row.revision_count || 0,
-        previousVersions: previousVersionsData,
-      };
-
-      if (row.request_type === 'FILE_TRANSFER') {
-        result.files = filesData;
-      } else if (row.request_type === 'BACKUP') {
-        result.backups = filesData;
-      } else if (row.request_type === 'VDI' || row.request_type === 'VDI_OPEN') {
-        result.vdis = filesData;
-      } else if (row.request_type === 'TAPE') {
-        result.tapes = filesData;
-      } else if (row.request_type === 'USB_PORT') {
-        result.usbPorts = filesData;
-      } else if (row.request_type === 'APP_INSTALL') {
-        result.appInstalls = filesData;
-      } else if (row.request_type === 'SERVER_RESTART') {
-        result.serverRestarts = filesData;
-      } else if (row.request_type === 'VIDEO_CONFRENCE') {
-        result.videoConferences = filesData;
-      }
-
-      return result;
-    });
-
-    res.json(requests);
+    res.json(await enrichRequestsWithServerNames(result.rows.map(mapRowToRequest)));
   } catch (error: any) {
     console.error('Get history error:', error);
     res.status(500).json({ error: 'خطا در دریافت تاریخچه' });
@@ -403,7 +316,7 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { type, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences } = req.body;
+    const { type, selectedServerId, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences } = req.body;
 
     if (!type) {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
@@ -528,6 +441,13 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     const hierarchy = getApprovalHierarchy(type);
     const firstApprover = hierarchy[0];
 
+    // اضافه کردن selectedServerId و selectedServerName به هر آیتم در JSONB
+    const { data: enrichedData, selectedServerName } = await attachSelectedServerMetadata(
+      selectedServerId,
+      dataToStore
+    );
+    dataToStore = enrichedData;
+
     const insertResult = await pool.query(
       `INSERT INTO requests (
         id, requester_id, requester_name, department, request_type, files,
@@ -571,6 +491,8 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       requesterName: row.requester_name,
       department: row.department,
       requestType: row.request_type,
+      selectedServerId: selectedServerId || null,
+      selectedServerName,
       status: row.status,
       currentApprover: row.current_approver,
       approvalHistory: approvalHistoryData,

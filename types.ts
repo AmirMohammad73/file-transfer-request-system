@@ -61,6 +61,7 @@ export interface VDIDetail {
   sourceAddress?: string;
   destinationAddress?: string;
   serverOrSystemName: string;
+  portNumber?: string;
 }
 
 export interface TapeDetail {
@@ -118,6 +119,8 @@ export interface Request {
   requesterName: string;
   department: string;
   requestType: RequestType;
+  selectedServerId?: number;
+  selectedServerName?: string; // از فیلد JSONB خوانده می‌شود (داخل files/backups/...)
   files?: FileDetail[];
   backups?: BackupDetail[];
   vdis?: VDIDetail[];
@@ -146,4 +149,48 @@ export interface User {
   role: Role;
   department: string;
   groupIds?: number[];
+}
+
+// ─── Backup Resources / شناسنامه سرورها ──────────────────────────────────────
+
+export interface Contractor {
+  id?: number;
+  systemName: string;
+  contName?: string;
+  repName1?: string;
+  phone1?: string;
+  repName2?: string;
+  phone2?: string;
+  repName3?: string;
+  phone3?: string;
+  reqUserIds?: number[];
+  registeredByName?: string;
+  registeredByDept?: string;
+  servers?: BackupServer[];
+}
+
+export interface BackupServer {
+  id?: number;
+  ip: string;           // اجباری
+  vmname?: string;      // خودکار (بر اساس IP)
+  url?: string;
+  type?: string;        // نوع کاربری سرور (بکاپ، دیتابیس، sql و...)
+  backupOperator?: string;
+  backupPeriod?: string;
+  contractorId?: number;
+}
+
+// برای سازگاری با کد قبلی — نگه داشته می‌شود
+export interface BackupResource {
+  id?: number;
+  ip: string;
+  systemName?: string;
+  vmname?: string;
+  url?: string;
+  type?: string;
+  backupOperator?: string;
+  backupPeriod?: string;
+  contractorId?: number;
+  reqUserIds?: number[];
+  contractor?: Contractor | null;
 }

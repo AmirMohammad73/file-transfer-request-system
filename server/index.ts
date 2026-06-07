@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { Pool } from 'pg';
 import authRoutes from './routes/auth';
 import requestRoutes from './routes/requests';
+import backupResourcesRoutes from './routes/backupResources';
 
 dotenv.config();
 
@@ -41,6 +42,7 @@ app.use(cookieParser());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/requests', requestRoutes);
+app.use('/api/backup-resources', backupResourcesRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

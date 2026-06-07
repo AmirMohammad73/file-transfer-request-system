@@ -1,15 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, User, RequestType, Request, Role } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, User, RequestType, Request, Role, BackupResource } from '../types';
 import { SHOW_VIDEO_CONFERENCE_IN_MENU } from '../constants';
 import { PlusCircleIcon, SendIcon, Trash2Icon } from './icons';
 import { useToastContext } from './ToastContainer';
 import PersianDatePicker from './PersianDatePicker';
 import TimeInput24 from './TimeInput24';
+import ServerIpCombobox from './ServerIpCombobox';
 import { isValidTime24, normalizeTime24 } from '../utils/time24';
+import { backupResourcesAPI } from '../utils/api';
 
 interface RequestFormProps {
     currentUser: User;
-    onSubmit: (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => void;
+    onSubmit: (data: { type: RequestType; selectedServerId?: number; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => void;
     initialData?: Request;
     isEditing?: boolean;
 }
@@ -43,6 +45,47 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         return RequestType.FILE_TRANSFER;
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // State for server dropdown
+    const [availableServers, setAvailableServers] = useState<import('../types').Contractor[]>([]);
+    const [selectedServerId, setSelectedServerId] = useState<number | ''>('');
+    const [serversLoading, setServersLoading] = useState(false);
+
+    // Load available servers for dropdown
+    useEffect(() => {
+        const fetchServers = async () => {
+            try {
+                setServersLoading(true);
+                const servers = await backupResourcesAPI.getAllForDropdown();
+                setAvailableServers(servers);
+            } catch (error) {
+                console.error('Error fetching servers for dropdown:', error);
+            } finally {
+                setServersLoading(false);
+            }
+        };
+        fetchServers();
+    }, []);
+
+    const activeServerId = selectedServerId || (isEditing ? initialData?.selectedServerId : undefined) || '';
+
+    const availableIps = useMemo(() => {
+        if (!activeServerId) return [];
+        const contractor = availableServers.find(s => s.id === activeServerId);
+        return (contractor?.servers || []).map(s => s.ip);
+    }, [availableServers, activeServerId]);
+
+    const ipFieldsDisabled = !activeServerId || availableIps.length === 0;
+
+    const clearIpFieldsOnSystemChange = () => {
+        setFiles(prev => prev.map(f => ({ ...f, sourceIP: '', destinationIP: '' })));
+        setBackups(prev => prev.map(b => ({ ...b, serverIP: '' })));
+        setTapes(prev => prev.map(t => ({ ...t, serverIP: '' })));
+        setAppInstalls(prev => prev.map(a => ({ ...a, serverIP: '' })));
+        setServerRestarts(prev => prev.map(sr => ({ ...sr, serverIP: '' })));
+    };
+
+    const isRegisteredIp = (ip: string) => availableIps.includes(ip);
     
     // State for File Transfer form
     const [files, setFiles] = useState<FileDetail[]>(
@@ -61,7 +104,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     // State for VDI form
     const [vdis, setVdis] = useState<VDIDetail[]>(
         initialData?.vdis || savedData?.vdis || [
-            { id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }
+            { id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '', portNumber: '' }
         ]
     );
 
@@ -131,6 +174,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     useEffect(() => {
         if (initialData) {
             setRequestType(initialData.requestType);
+            if (initialData.selectedServerId) {
+                setSelectedServerId(initialData.selectedServerId);
+            }
             
             // Set files with proper defaults
             if (initialData.requestType === RequestType.FILE_TRANSFER && initialData.files && initialData.files.length > 0) {
@@ -172,36 +218,23 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
 
     const handleFileChange = (index: number, field: keyof FileDetail, value: string) => {
         const newFiles = [...files];
-        
-        // Validate IP fields
-        if (field === 'sourceIP' || field === 'destinationIP') {
-            // Only allow numbers and dots
-            const ipPattern = /^[0-9.]*$/;
-            if (!ipPattern.test(value)) {
-                return; // Don't update if invalid characters
-            }
-        }
-        
         newFiles[index] = { ...newFiles[index], [field]: value };
         setFiles(newFiles);
     };
 
-    const validateIP = (ip: string): boolean => {
-        // Empty is invalid
-        if (!ip || ip.trim() === '') return false;
-        
-        // Check format: should be xxx.xxx.xxx.xxx
-        const parts = ip.split('.');
-        if (parts.length !== 4) return false;
-        
-        // Each part should be a number between 0-255
-        for (const part of parts) {
-            const num = parseInt(part, 10);
-            if (isNaN(num) || num < 0 || num > 255 || part !== num.toString()) {
-                return false;
-            }
+    const assertRegisteredIp = (ip: string, label: string): boolean => {
+        if (!isRegisteredIp(ip)) {
+            showToast(`${label} باید از لیست IP های ثبت‌شده برای این سامانه انتخاب شود.`, 'warning');
+            return false;
         }
-        
+        return true;
+    };
+
+    const ensureSystemHasIps = (): boolean => {
+        if (availableIps.length === 0) {
+            showToast('برای سامانه انتخاب‌شده سروری در شناسنامه ثبت نشده است.', 'warning');
+            return false;
+        }
         return true;
     };
 
@@ -212,6 +245,10 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     };
 
     const handleVDIChange = (index: number, field: keyof VDIDetail, value: string) => {
+        if (field === 'portNumber') {
+            const portPattern = /^[0-9]*$/;
+            if (!portPattern.test(value)) return;
+        }
         const newVdis = [...vdis];
         newVdis[index] = { ...newVdis[index], [field]: value };
         setVdis(newVdis);
@@ -296,7 +333,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const addVdi = () => {
         setVdis([
             ...vdis,
-            { id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }
+            { id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '', portNumber: '' }
         ]);
     };
 
@@ -383,10 +420,17 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         setIsSubmitting(true);
         
         try {
+            // اعتبارسنجی انتخاب سامانه (اجباری برای REQUESTER، به‌جز USB Port)
+            if (!isEditing && requestType !== RequestType.USB_PORT && !selectedServerId) {
+                showToast('لطفاً یک سامانه از لیست "انتخاب سامانه" انتخاب کنید', 'warning');
+                setIsSubmitting(false);
+                return;
+            }
+
             if (requestType === RequestType.FILE_TRANSFER) {
+                if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 // Validation for File Transfer
                 for (const file of files) {
-                    // Check required fields (all except letterNumber)
                     if (!file.fileName || !file.fileContent || !file.sourceIP || !file.sourceFilePath || 
                         !file.destinationIP || !file.destinationFilePath || !file.fileFormat || 
                         !file.recipient || !file.fileFields) {
@@ -394,31 +438,20 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         setIsSubmitting(false);
                         return;
                     }
-                    
-                    // Validate IP addresses
-                    if (!validateIP(file.sourceIP)) {
-                        showToast(`آدرس IP مبدا نامعتبر است: ${file.sourceIP}. لطفاً یک آدرس IP معتبر وارد کنید (مثال: 192.168.1.100)`, 'error');
-                        setIsSubmitting(false);
-                        return;
-                    }
-                    
-                    if (!validateIP(file.destinationIP)) {
-                        showToast(`آدرس IP مقصد نامعتبر است: ${file.destinationIP}. لطفاً یک آدرس IP معتبر وارد کنید (مثال: 192.168.1.100)`, 'error');
-                        setIsSubmitting(false);
-                        return;
-                    }
+                    if (!assertRegisteredIp(file.sourceIP, 'آدرس IP مبدا')) { setIsSubmitting(false); return; }
                 }
-                onSubmit({ type: RequestType.FILE_TRANSFER, files });
+                onSubmit({ type: RequestType.FILE_TRANSFER, selectedServerId: selectedServerId || undefined, files });
             } else if (requestType === RequestType.BACKUP) {
-                // Validation for Backup
+                if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const backup of backups) {
                     if (!backup.serverIP || !backup.backupMethod || !backup.schedule || !backup.retentionPeriod) {
                         showToast('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (مسیر نگهداری اختیاری است)', 'warning');
                         setIsSubmitting(false);
                         return;
                     }
+                    if (!assertRegisteredIp(backup.serverIP, 'IP سرور')) { setIsSubmitting(false); return; }
                 }
-                onSubmit({ type: RequestType.BACKUP, backups });
+                onSubmit({ type: RequestType.BACKUP, selectedServerId: selectedServerId || undefined, backups });
             } else if (requestType === RequestType.VDI) {
                 // Validation for VDI
                 for (const vdi of vdis) {
@@ -428,15 +461,16 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.VDI, vdis });
+                onSubmit({ type: RequestType.VDI, selectedServerId: selectedServerId || undefined, vdis });
             } else if (requestType === RequestType.TAPE) {
-                // Validation for Tape
+                if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const tape of tapes) {
                     if (!tape.serverIP || !tape.serverIP.trim()) {
                         showToast('لطفاً فیلد "IP سرور" را برای همه رکوردها پر کنید.', 'warning');
                         setIsSubmitting(false);
                         return;
                     }
+                    if (!assertRegisteredIp(tape.serverIP, 'IP سرور')) { setIsSubmitting(false); return; }
                     if (!tape.fileName || !tape.fileName.trim()) {
                         showToast('لطفاً فیلد "نام فایل" را برای همه رکوردها پر کنید.', 'warning');
                         setIsSubmitting(false);
@@ -448,7 +482,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.TAPE, tapes });
+                onSubmit({ type: RequestType.TAPE, selectedServerId: selectedServerId || undefined, tapes });
             } else if (requestType === RequestType.USB_PORT) {
                 // Validation for USB Port
                 for (const usbPort of usbPorts) {
@@ -465,27 +499,30 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 }
                 onSubmit({ type: RequestType.USB_PORT, usbPorts });
             } else if (requestType === RequestType.APP_INSTALL) {
-                // Validation for App Install
+                if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const appInstall of appInstalls) {
                     if (!appInstall.serverIP || !appInstall.serverIP.trim()) {
                         showToast('لطفاً فیلد "IP سرور" را برای همه رکوردها پر کنید.', 'warning');
                         setIsSubmitting(false);
                         return;
                     }
+                    if (!assertRegisteredIp(appInstall.serverIP, 'IP سرور')) { setIsSubmitting(false); return; }
                     if (!appInstall.appNameOrLink || !appInstall.appNameOrLink.trim()) {
                         showToast('لطفاً فیلد "نام برنامه یا لینک" را برای همه رکوردها پر کنید.', 'warning');
                         setIsSubmitting(false);
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.APP_INSTALL, appInstalls });
+                onSubmit({ type: RequestType.APP_INSTALL, selectedServerId: selectedServerId || undefined, appInstalls });
             } else if (requestType === RequestType.SERVER_RESTART) {
+                if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const sr of serverRestarts) {
                     if (!sr.serverIP || !sr.serverIP.trim()) {
                         showToast('لطفاً فیلد «IP سرور» را برای همه رکوردها پر کنید.', 'warning');
                         setIsSubmitting(false);
                         return;
                     }
+                    if (!assertRegisteredIp(sr.serverIP, 'IP سرور')) { setIsSubmitting(false); return; }
                     if (!sr.isUrgent) {
                         if (!sr.restartTime?.trim()) {
                             showToast('لطفاً «ساعت ریستارت» را وارد کنید یا گزینه «فوری» را انتخاب کنید.', 'warning');
@@ -512,6 +549,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 }
                 onSubmit({
                     type: RequestType.SERVER_RESTART,
+                    selectedServerId: selectedServerId || undefined,
                     serverRestarts: serverRestarts.map((sr) => ({
                         ...sr,
                         restartTime: sr.isUrgent ? '' : normalizeTime24(sr.restartTime),
@@ -551,7 +589,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.VIDEO_CONFRENCE, videoConferences });
+                onSubmit({ type: RequestType.VIDEO_CONFRENCE, selectedServerId: selectedServerId || undefined, videoConferences });
             }
             
             // Clear localStorage after successful submit
@@ -567,7 +605,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             if (!isEditing) {
                 setFiles([{ id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }]);
                 setBackups([{ id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }]);
-                setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '' }]);
+                setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '', portNumber: '' }]);
                 setTapes([{ id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }]);
                 setUsbPorts([{ id: `usb-${Date.now()}`, serverIP: '', duration: '' }]);
                 setAppInstalls([{ id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }]);
@@ -610,30 +648,76 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
 
             {/* Request Type Selector */}
             <div className="bg-gradient-to-r from-blue-50 to-green-50 border-2 border-blue-300 rounded-lg p-5 mb-6 shadow-md">
-                <label className="font-bold text-gray-800 block mb-3 text-lg">نوع درخواست:</label>
-                {currentUser.role === Role.V_REQUESTER && !isEditing ? (
-                    <div className="w-full p-3 border-2 border-rose-300 rounded-md bg-rose-50 text-gray-800 font-semibold">
-                        درخواست ویدئو کنفرانس (فقط این نوع برای نقش شما فعال است)
-                    </div>
-                ) : (
-                    <select
-                        value={requestType}
-                        onChange={(e) => setRequestType(e.target.value as RequestType)}
-                        disabled={currentUser.role === Role.V_REQUESTER}
-                        className="w-full p-3 border-2 border-blue-400 rounded-md bg-white text-gray-800 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer disabled:bg-gray-100 disabled:cursor-not-allowed"
-                    >
-                        <option value={RequestType.FILE_TRANSFER}>فرم درخواست فایل از/به سرور (کد مدرک: NS-F-04-01)</option>
-                        <option value={RequestType.BACKUP}>فرم درخواست تهیه Backup (کد مدرک: NS-F-05-01)</option>
-                        <option value={RequestType.VDI}>فرم درخواست باز کردن VDI (کد مدرک: NS-F-01-01)</option>
-                        <option value={RequestType.TAPE}>فرم درخواست تهیه پشتیبان از Tape</option>
-                        <option value={RequestType.USB_PORT}>فرم باز کردن USB Port</option>
-                        <option value={RequestType.APP_INSTALL}>نصب برنامه</option>
-                        <option value={RequestType.SERVER_RESTART}>درخواست ریستارت سرور</option>
-                        {SHOW_VIDEO_CONFERENCE_IN_MENU && (currentUser.role === Role.REQUESTER || currentUser.role === Role.V_REQUESTER || isEditing) && (
-                            <option value={RequestType.VIDEO_CONFRENCE}>درخواست ویدئو کنفرانس</option>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="font-bold text-gray-800 block mb-3 text-lg">نوع درخواست:</label>
+                        {currentUser.role === Role.V_REQUESTER && !isEditing ? (
+                            <div className="w-full p-3 border-2 border-rose-300 rounded-md bg-rose-50 text-gray-800 font-semibold">
+                                درخواست ویدئو کنفرانس (فقط این نوع برای نقش شما فعال است)
+                            </div>
+                        ) : (
+                            <select
+                                value={requestType}
+                                onChange={(e) => setRequestType(e.target.value as RequestType)}
+                                disabled={currentUser.role === Role.V_REQUESTER}
+                                className="w-full p-3 border-2 border-blue-400 rounded-md bg-white text-gray-800 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer disabled:bg-gray-100 disabled:cursor-not-allowed"
+                            >
+                                <option value={RequestType.FILE_TRANSFER}>فرم درخواست فایل از/به سرور (کد مدرک: NS-F-04-01)</option>
+                                <option value={RequestType.BACKUP}>فرم درخواست تهیه Backup (کد مدرک: NS-F-05-01)</option>
+                                <option value={RequestType.VDI}>فرم درخواست باز کردن VDI (کد مدرک: NS-F-01-01)</option>
+                                <option value={RequestType.TAPE}>فرم درخواست تهیه پشتیبان از Tape</option>
+                                <option value={RequestType.USB_PORT}>فرم باز کردن USB Port</option>
+                                <option value={RequestType.APP_INSTALL}>نصب برنامه</option>
+                                <option value={RequestType.SERVER_RESTART}>درخواست ریستارت سرور</option>
+                                {SHOW_VIDEO_CONFERENCE_IN_MENU && (currentUser.role === Role.REQUESTER || currentUser.role === Role.V_REQUESTER || isEditing) && (
+                                    <option value={RequestType.VIDEO_CONFRENCE}>درخواست ویدئو کنفرانس</option>
+                                )}
+                            </select>
                         )}
-                    </select>
-                )}
+                    </div>
+                    {!isEditing && requestType !== RequestType.USB_PORT && (
+                        <div>
+                            <label className="font-bold text-gray-800 block mb-3 text-lg">
+                                انتخاب سامانه: <span className="text-red-500">*</span>
+                            </label>
+                            {serversLoading ? (
+                                <div className="w-full p-3 border-2 border-gray-300 rounded-md bg-gray-50 text-gray-500 flex items-center gap-2">
+                                    <div className="spinner w-4 h-4"></div>
+                                    <span>در حال بارگذاری سامانه‌ها...</span>
+                                </div>
+                            ) : availableServers.length === 0 ? (
+                                <div className="w-full p-3 border-2 border-orange-300 rounded-md bg-orange-50 text-orange-700 text-sm font-medium">
+                                    ⚠️ هیچ سامانه‌ای در شناسنامه سامانه‌ها ثبت نشده است. ابتدا از دکمه «شناسنامه سامانه‌ها» سامانه اضافه کنید.
+                                </div>
+                            ) : (
+                                <select
+                                    value={selectedServerId}
+                                    onChange={(e) => {
+                                        const newId = e.target.value ? Number(e.target.value) : '';
+                                        if (newId !== selectedServerId) clearIpFieldsOnSystemChange();
+                                        setSelectedServerId(newId);
+                                    }}
+                                    className={`w-full p-3 border-2 rounded-md bg-white text-gray-800 font-semibold focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085] cursor-pointer ${
+                                        !selectedServerId ? 'border-red-300' : 'border-[#16a085]'
+                                    }`}
+                                >
+                                    <option value="">-- انتخاب سامانه --</option>
+                                    {availableServers.map(server => (
+                                        <option key={server.id} value={server.id}>
+                                            {server.systemName}
+                                            {server.contName ? ` — ${server.contName}` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                            {activeServerId && availableIps.length === 0 && (
+                                <p className="mt-2 text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded-md p-2">
+                                    برای این سامانه سروری در شناسنامه ثبت نشده است. ابتدا از «شناسنامه سامانه‌ها» IP سرور را اضافه کنید.
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* File Transfer Form */}
@@ -679,13 +763,14 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         آدرس IP مبدا <span className="text-red-500">*</span>
                                     </label>
-                                    <input 
-                                        type="text" 
-                                        value={file.sourceIP} 
-                                        onChange={e => handleFileChange(index, 'sourceIP', e.target.value)} 
-                                        placeholder="مثال: 192.168.1.100"
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
+                                    <ServerIpCombobox
+                                        value={file.sourceIP}
+                                        onChange={v => handleFileChange(index, 'sourceIP', v)}
+                                        options={availableIps}
+                                        disabled={ipFieldsDisabled}
+                                        placeholder="انتخاب IP مبدا"
                                         required
+                                        className="focus:ring-[#3498db]"
                                     />
                                 </div>
                                 
@@ -835,12 +920,14 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">IP سرور <span className="text-red-500">*</span></label>
-                                    <input 
-                                        type="text" 
-                                        value={backup.serverIP} 
-                                        onChange={e => handleBackupChange(index, 'serverIP', e.target.value)} 
-                                        placeholder="مثال: 192.168.1.100"
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#2ecc71]" 
+                                    <ServerIpCombobox
+                                        value={backup.serverIP}
+                                        onChange={v => handleBackupChange(index, 'serverIP', v)}
+                                        options={availableIps}
+                                        disabled={ipFieldsDisabled}
+                                        placeholder="انتخاب IP سرور"
+                                        required
+                                        className="focus:ring-[#2ecc71]"
                                     />
                                 </div>
                                 <div>
@@ -971,7 +1058,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#9b59b6]" 
                                     />
                                 </div>
-                                <div className="md:col-span-2">
+                                <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         نام سرور/ سامانه <span className="text-red-500">*</span>
                                     </label>
@@ -982,6 +1069,17 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         placeholder="مثال: https://vdi.example.com یا 192.168.1.50"
                                         className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#9b59b6]" 
                                         required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1">شماره پورت</label>
+                                    <input 
+                                        type="text" 
+                                        inputMode="numeric"
+                                        value={vdi.portNumber || ''} 
+                                        onChange={e => handleVDIChange(index, 'portNumber', e.target.value)} 
+                                        placeholder="مثال: 443"
+                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#9b59b6]" 
                                     />
                                 </div>
                             </div>
@@ -1026,13 +1124,14 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         IP سرور <span className="text-red-500">*</span>
                                     </label>
-                                    <input 
-                                        type="text" 
-                                        value={tape.serverIP} 
-                                        onChange={e => handleTapeChange(index, 'serverIP', e.target.value)} 
-                                        placeholder="مثال: 192.168.1.100 یا توضیحات مربوط به سرور" 
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#e67e22]" 
-                                        required 
+                                    <ServerIpCombobox
+                                        value={tape.serverIP}
+                                        onChange={v => handleTapeChange(index, 'serverIP', v)}
+                                        options={availableIps}
+                                        disabled={ipFieldsDisabled}
+                                        placeholder="انتخاب IP سرور"
+                                        required
+                                        className="focus:ring-[#e67e22]"
                                     />
                                 </div>
                                 <div className="md:col-span-2">
@@ -1167,13 +1266,14 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         IP سرور <span className="text-red-500">*</span>
                                     </label>
-                                    <input 
-                                        type="text" 
-                                        value={appInstall.serverIP} 
-                                        onChange={e => handleAppInstallChange(index, 'serverIP', e.target.value)} 
-                                        placeholder="مثال: 192.168.1.100 یا توضیحات مربوط به سرور"
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#8e44ad]" 
+                                    <ServerIpCombobox
+                                        value={appInstall.serverIP}
+                                        onChange={v => handleAppInstallChange(index, 'serverIP', v)}
+                                        options={availableIps}
+                                        disabled={ipFieldsDisabled}
+                                        placeholder="انتخاب IP سرور"
                                         required
+                                        className="focus:ring-[#8e44ad]"
                                     />
                                 </div>
                                 <div>
@@ -1230,13 +1330,14 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         <label className="font-semibold text-sm text-gray-700 block mb-1">
                         IP سرور <span className="text-red-500">*</span>
                         </label>
-                        <input
-                        type="text"
+                        <ServerIpCombobox
                         value={sr.serverIP}
-                        onChange={(e) => handleServerRestartChange(index, 'serverIP', e.target.value)}
-                        placeholder="مثال: 192.168.1.100"
-                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#c0392b]"
+                        onChange={(v) => handleServerRestartChange(index, 'serverIP', v)}
+                        options={availableIps}
+                        disabled={ipFieldsDisabled}
+                        placeholder="انتخاب IP سرور"
                         required
+                        className="focus:ring-[#c0392b]"
                         />
                     </div>
                     <div>

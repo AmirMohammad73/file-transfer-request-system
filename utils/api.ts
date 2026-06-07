@@ -1,4 +1,4 @@
-import { User, Request, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, RequestType } from '../types';
+import { User, Request, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, RequestType, BackupResource, Contractor, BackupServer } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:5000/api');
 
@@ -117,5 +117,98 @@ export const requestsAPI = {
       method: 'PUT',
       body: JSON.stringify({ letterNumber }),
     });
+  },
+};
+
+// ─── Backup Resources API / شناسنامه سرورها ──────────────────────────────────
+
+export const backupResourcesAPI = {
+  // ── Contractors (سامانه‌ها) ──
+  getAllContractors: async (): Promise<Contractor[]> => {
+    return apiCall<Contractor[]>('/backup-resources/contractors');
+  },
+
+  createContractor: async (data: {
+    systemName: string;
+    contName?: string;
+    repName1: string;
+    phone1: string;
+    repName2?: string;
+    phone2?: string;
+    repName3?: string;
+    phone3?: string;
+  }): Promise<Contractor> => {
+    return apiCall<Contractor>('/backup-resources/contractors', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateContractor: async (id: number, data: {
+    systemName: string;
+    contName?: string;
+    repName1: string;
+    phone1: string;
+    repName2?: string;
+    phone2?: string;
+    repName3?: string;
+    phone3?: string;
+  }): Promise<Contractor> => {
+    return apiCall<Contractor>(`/backup-resources/contractors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteContractor: async (id: number): Promise<void> => {
+    await apiCall(`/backup-resources/contractors/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Servers (سرورها) ──
+  addServer: async (contractorId: number, data: {
+    ip: string;
+    vmname?: string;
+    url?: string;
+    type?: string;
+    backupOperator?: string;
+    backupPeriod?: string;
+  }): Promise<BackupServer> => {
+    return apiCall<BackupServer>(`/backup-resources/contractors/${contractorId}/servers`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateServer: async (serverId: number, data: {
+    ip: string;
+    vmname?: string;
+    url?: string;
+    type?: string;
+    backupOperator?: string;
+    backupPeriod?: string;
+  }): Promise<BackupServer> => {
+    return apiCall<BackupServer>(`/backup-resources/servers/${serverId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteServer: async (serverId: number): Promise<void> => {
+    await apiCall(`/backup-resources/servers/${serverId}`, { method: 'DELETE' });
+  },
+
+  // ── Dropdown (برای فرم درخواست) ──
+  getAllForDropdown: async (): Promise<Contractor[]> => {
+    return apiCall<Contractor[]>('/backup-resources/dropdown');
+  },
+
+  // ── Legacy (برای سازگاری با کد قبلی) ──
+  getAll: async (): Promise<Contractor[]> => {
+    return apiCall<Contractor[]>('/backup-resources/contractors');
+  },
+
+  // ── PDF Report ──
+  getPdfReport: async (): Promise<any[]> => {
+    return apiCall<any[]>('/backup-resources/pdf-report');
   },
 };

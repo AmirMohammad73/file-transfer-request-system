@@ -261,7 +261,8 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                                 <div><strong className="text-gray-500">نام فایل یا فولدر:</strong> {vdi.fileOrFolderName || '—'}</div>
                                 <div><strong className="text-gray-500">آدرس مبدا:</strong> {vdi.sourceAddress || '—'}</div>
                                 <div><strong className="text-gray-500">آدرس مقصد:</strong> {vdi.destinationAddress || '—'}</div>
-                                <div className="md:col-span-2"><strong className="text-gray-500">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
+                                <div><strong className="text-gray-500">نام سرور/ سامانه:</strong> {vdi.serverOrSystemName}</div>
+                                {vdi.portNumber && <div><strong className="text-gray-500">شماره پورت:</strong> {vdi.portNumber}</div>}
                               </div>
                             </div>
                           ))}

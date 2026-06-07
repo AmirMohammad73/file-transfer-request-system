@@ -5,6 +5,7 @@ import RequestForm from '../components/RequestForm';
 import RequestList from '../components/RequestList';
 import RejectedRequestsList from '../components/RejectedRequestsList';
 import HistoryModal from '../components/HistoryModal';
+import SystemManagementModal from '../components/SystemManagementModal';
 import Header from '../components/Header';
 import { useAuth } from '../auth/AuthContext';
 import { useNotification } from '../hooks/useNotification';
@@ -17,6 +18,7 @@ const MainApp: React.FC = () => {
     const [historyRequests, setHistoryRequests] = useState<Request[]>([]);
     const [loading, setLoading] = useState(true);
     const [isHistoryOpen, setHistoryOpen] = useState(false);
+    const [isSystemManagementOpen, setSystemManagementOpen] = useState(false);
     const { showNotification } = useNotification();
     const previousPendingCountRef = useRef<number>(0);
     const previousPendingIdsRef = useRef<Set<string>>(new Set());
@@ -312,7 +314,10 @@ const MainApp: React.FC = () => {
 
     return (
         <div className="bg-gray-100 dark:bg-slate-900 min-h-screen pt-24 p-5 transition-colors duration-200">
-            <Header onShowHistory={() => setHistoryOpen(true)} />
+            <Header 
+                onShowHistory={() => setHistoryOpen(true)} 
+                onShowSystemManagement={() => setSystemManagementOpen(true)}
+            />
             <div className="max-w-7xl mx-auto">
                 <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-8 border border-gray-200 dark:border-slate-600 transition-colors duration-200">
                     <header className="text-center mb-8 pb-4 border-b-2 border-[#3498db] dark:border-sky-500 relative">
@@ -355,6 +360,10 @@ const MainApp: React.FC = () => {
                 isOpen={isHistoryOpen} 
                 onClose={() => setHistoryOpen(false)} 
                 onCancel={handleCancelRequest}
+            />
+            <SystemManagementModal 
+                isOpen={isSystemManagementOpen} 
+                onClose={() => setSystemManagementOpen(false)} 
             />
         </div>
     );
