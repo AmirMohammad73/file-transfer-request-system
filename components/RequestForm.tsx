@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, User, RequestType, Request, Role, BackupResource } from '../types';
-import { SHOW_VIDEO_CONFERENCE_IN_MENU } from '../constants';
+import { FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, LetterFollowupDetail, User, RequestType, Request, Role, BackupResource } from '../types';
+import { SHOW_VIDEO_CONFERENCE_IN_MENU, LETTER_FOLLOWUP_SUBJECT_OPTIONS } from '../constants';
 import { PlusCircleIcon, SendIcon, Trash2Icon } from './icons';
 import { useToastContext } from './ToastContainer';
 import PersianDatePicker from './PersianDatePicker';
 import TimeInput24 from './TimeInput24';
 import ServerIpCombobox from './ServerIpCombobox';
+import IpWithSystemDisplay from './IpWithSystemDisplay';
+import UserSelector from './UserSelector';
 import { isValidTime24, normalizeTime24 } from '../utils/time24';
-import { backupResourcesAPI } from '../utils/api';
+import { backupResourcesAPI, authAPI, requestsAPI } from '../utils/api';
 
 interface RequestFormProps {
     currentUser: User;
-    onSubmit: (data: { type: RequestType; selectedServerId?: number; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => void;
+    onSubmit: (data: { type: RequestType; selectedServerId?: number; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[]; letterFollowups?: LetterFollowupDetail[]; notifyUserIds?: number[]; pendingUploads?: { fileId: string; file: File }[] }) => void;
     initialData?: Request;
     isEditing?: boolean;
 }
@@ -50,6 +52,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const [availableServers, setAvailableServers] = useState<import('../types').Contractor[]>([]);
     const [selectedServerId, setSelectedServerId] = useState<number | ''>('');
     const [serversLoading, setServersLoading] = useState(false);
+
+    // State for notification users
+    const [notifyUserIds, setNotifyUserIds] = useState<number[]>([]);
 
     // Load available servers for dropdown
     useEffect(() => {
@@ -141,6 +146,17 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         ]
     );
 
+    const [letterFollowups, setLetterFollowups] = useState<LetterFollowupDetail[]>(
+        initialData?.letterFollowups || savedData?.letterFollowups || [
+            { id: `lf-${Date.now()}`, letterNumber: '', letterSubject: '', description: '' },
+        ]
+    );
+
+    // State for file upload tracking
+    const [uploadingFiles, setUploadingFiles] = useState<{ [fileId: string]: boolean }>({});
+    const [uploadErrors, setUploadErrors] = useState<{ [fileId: string]: string }>({});
+    const [pendingUploads, setPendingUploads] = useState<{ fileId: string; file: File }[]>([]);
+
     useEffect(() => {
         if (!isEditing && currentUser.role === Role.V_REQUESTER) {
             setRequestType(RequestType.VIDEO_CONFRENCE);
@@ -161,6 +177,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             appInstalls: requestType === RequestType.APP_INSTALL ? appInstalls : undefined,
             serverRestarts: requestType === RequestType.SERVER_RESTART ? serverRestarts : undefined,
             videoConferences: requestType === RequestType.VIDEO_CONFRENCE ? videoConferences : undefined,
+            letterFollowups: requestType === RequestType.LETTER_FOLLOWUP ? letterFollowups : undefined,
         };
         
         try {
@@ -168,7 +185,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         } catch (e) {
             console.error('Error saving form data to localStorage:', e);
         }
-    }, [requestType, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences, isEditing, isSubmitting]);
+    }, [requestType, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences, letterFollowups, isEditing, isSubmitting]);
 
     // Update form when initialData changes
     useEffect(() => {
@@ -212,6 +229,9 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             }
             if (initialData.requestType === RequestType.SERVER_RESTART && initialData.serverRestarts && initialData.serverRestarts.length > 0) {
                 setServerRestarts(initialData.serverRestarts);
+            }
+            if (initialData.requestType === RequestType.LETTER_FOLLOWUP && initialData.letterFollowups && initialData.letterFollowups.length > 0) {
+                setLetterFollowups(initialData.letterFollowups);
             }
         }
     }, [initialData]);
@@ -292,6 +312,28 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const removeServerRestart = (id: string) => {
         if (serverRestarts.length > 1) {
             setServerRestarts(serverRestarts.filter((sr) => sr.id !== id));
+            showToast('رکورد با موفقیت حذف شد', 'success');
+        } else {
+            showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
+        }
+    };
+
+    const handleLetterFollowupChange = (index: number, field: keyof LetterFollowupDetail, value: string) => {
+        const next = [...letterFollowups];
+        next[index] = { ...next[index], [field]: value };
+        setLetterFollowups(next);
+    };
+
+    const addLetterFollowup = () => {
+        setLetterFollowups([
+            ...letterFollowups,
+            { id: `lf-${Date.now()}`, letterNumber: '', letterSubject: '', description: '' },
+        ]);
+    };
+
+    const removeLetterFollowup = (id: string) => {
+        if (letterFollowups.length > 1) {
+            setLetterFollowups(letterFollowups.filter((lf) => lf.id !== id));
             showToast('رکورد با موفقیت حذف شد', 'success');
         } else {
             showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
@@ -415,13 +457,56 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             showToast('حداقل باید یک رکورد وجود داشته باشد', 'warning');
         }
     };
+
+    // ─── آپلود فایل ───────────────────────────────────────────────────────────
+    const handleFileUpload = async (fileId: string, requestRequestId: string, selectedFile: File) => {
+        if (selectedFile.size > 1024 * 1024 * 1024) {
+            showToast('حجم فایل نباید بیشتر از ۱ گیگابایت باشد', 'error');
+            return;
+        }
+
+        setUploadingFiles(prev => ({ ...prev, [fileId]: true }));
+        setUploadErrors(prev => {
+            const next = { ...prev };
+            delete next[fileId];
+            return next;
+        });
+
+        try {
+            const result = await requestsAPI.uploadFile(requestRequestId, fileId, selectedFile);
+            
+            // به‌روزرسانی اطلاعات فایل در state
+            setFiles(prev => prev.map(f => 
+                f.id === fileId 
+                    ? { ...f, uploadedFile: result.uploadedFile }
+                    : f
+            ));
+
+            showToast('فایل با موفقیت آپلود شد', 'success');
+        } catch (error: any) {
+            setUploadErrors(prev => ({ ...prev, [fileId]: error.message || 'خطا در آپلود فایل' }));
+            showToast(error.message || 'خطا در آپلود فایل', 'error');
+        } finally {
+            setUploadingFiles(prev => {
+                const next = { ...prev };
+                delete next[fileId];
+                return next;
+            });
+        }
+    };
+
+    // بررسی آیا IP مقصد در لیست IPهای سامانه انتخاب شده است
+    const isDestinationInSameSystem = (destinationIP: string): boolean => {
+        if (!destinationIP || !activeServerId) return false;
+        return availableIps.includes(destinationIP);
+    };
     
     const handleSubmit = async () => {
         setIsSubmitting(true);
         
         try {
             // اعتبارسنجی انتخاب سامانه (اجباری برای REQUESTER، به‌جز USB Port)
-            if (!isEditing && requestType !== RequestType.USB_PORT && !selectedServerId) {
+            if (!isEditing && requestType !== RequestType.USB_PORT && requestType !== RequestType.LETTER_FOLLOWUP && !selectedServerId) {
                 showToast('لطفاً یک سامانه از لیست "انتخاب سامانه" انتخاب کنید', 'warning');
                 setIsSubmitting(false);
                 return;
@@ -439,8 +524,16 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                     if (!assertRegisteredIp(file.sourceIP, 'آدرس IP مبدا')) { setIsSubmitting(false); return; }
+                    // بررسی اجباری بودن آپلود فایل برای انتقال درون‌سامانه‌ای
+                    if (file.sourceIP && file.destinationIP && isDestinationInSameSystem(file.destinationIP)) {
+                        if (!pendingUploads.find(p => p.fileId === file.id)) {
+                            showToast('برای انتقال بین سرورهای یک سامانه، بارگذاری فایل الزامی است', 'warning');
+                            setIsSubmitting(false);
+                            return;
+                        }
+                    }
                 }
-                onSubmit({ type: RequestType.FILE_TRANSFER, selectedServerId: selectedServerId || undefined, files });
+                onSubmit({ type: RequestType.FILE_TRANSFER, selectedServerId: selectedServerId || undefined, files, notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined, pendingUploads: pendingUploads.length > 0 ? pendingUploads : undefined });
             } else if (requestType === RequestType.BACKUP) {
                 if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const backup of backups) {
@@ -451,7 +544,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                     }
                     if (!assertRegisteredIp(backup.serverIP, 'IP سرور')) { setIsSubmitting(false); return; }
                 }
-                onSubmit({ type: RequestType.BACKUP, selectedServerId: selectedServerId || undefined, backups });
+                onSubmit({ type: RequestType.BACKUP, selectedServerId: selectedServerId || undefined, backups, notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined });
             } else if (requestType === RequestType.VDI) {
                 // Validation for VDI
                 for (const vdi of vdis) {
@@ -461,7 +554,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.VDI, selectedServerId: selectedServerId || undefined, vdis });
+                onSubmit({ type: RequestType.VDI, selectedServerId: selectedServerId || undefined, vdis, notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined });
             } else if (requestType === RequestType.TAPE) {
                 if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const tape of tapes) {
@@ -482,7 +575,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.TAPE, selectedServerId: selectedServerId || undefined, tapes });
+                onSubmit({ type: RequestType.TAPE, selectedServerId: selectedServerId || undefined, tapes, notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined });
             } else if (requestType === RequestType.USB_PORT) {
                 // Validation for USB Port
                 for (const usbPort of usbPorts) {
@@ -497,7 +590,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.USB_PORT, usbPorts });
+                onSubmit({ type: RequestType.USB_PORT, usbPorts, notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined });
             } else if (requestType === RequestType.APP_INSTALL) {
                 if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const appInstall of appInstalls) {
@@ -513,7 +606,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.APP_INSTALL, selectedServerId: selectedServerId || undefined, appInstalls });
+                onSubmit({ type: RequestType.APP_INSTALL, selectedServerId: selectedServerId || undefined, appInstalls, notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined });
             } else if (requestType === RequestType.SERVER_RESTART) {
                 if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 for (const sr of serverRestarts) {
@@ -554,6 +647,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         ...sr,
                         restartTime: sr.isUrgent ? '' : normalizeTime24(sr.restartTime),
                     })),
+                    notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined,
                 });
             } else if (requestType === RequestType.VIDEO_CONFRENCE) {
                 const timeToMinutes = (t: string): number => {
@@ -589,7 +683,28 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         return;
                     }
                 }
-                onSubmit({ type: RequestType.VIDEO_CONFRENCE, selectedServerId: selectedServerId || undefined, videoConferences });
+                onSubmit({ type: RequestType.VIDEO_CONFRENCE, selectedServerId: selectedServerId || undefined, videoConferences, notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined });
+            } else if (requestType === RequestType.LETTER_FOLLOWUP) {
+                for (const lf of letterFollowups) {
+                    if (!lf.letterNumber || !lf.letterNumber.trim()) {
+                        showToast('لطفاً فیلد «شماره نامه» را برای همه رکوردها پر کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (!lf.letterSubject) {
+                        showToast('لطفاً «موضوع نامه» را برای همه رکوردها انتخاب کنید.', 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+                onSubmit({
+                    type: RequestType.LETTER_FOLLOWUP,
+                    letterFollowups: letterFollowups.map((lf) => ({
+                        ...lf,
+                        description: lf.description?.trim() || undefined,
+                    })),
+                    notifyUserIds: notifyUserIds.length > 0 ? notifyUserIds : undefined,
+                });
             }
             
             // Clear localStorage after successful submit
@@ -611,6 +726,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 setAppInstalls([{ id: `app-${Date.now()}`, serverIP: '', appNameOrLink: '' }]);
                 setServerRestarts([{ id: `sr-${Date.now()}`, serverIP: '', restartTime: '', isUrgent: false, description: '' }]);
                 setVideoConferences([{ id: `vc-${Date.now()}`, scheduledDate: '', startTime: '', endTime: '', participantCount: '' }]);
+                setLetterFollowups([{ id: `lf-${Date.now()}`, letterNumber: '', letterSubject: '', description: '' }]);
             }
         } catch (error) {
             showToast('خطا در ارسال درخواست. لطفاً دوباره تلاش کنید.', 'error');
@@ -669,13 +785,14 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                 <option value={RequestType.USB_PORT}>فرم باز کردن USB Port</option>
                                 <option value={RequestType.APP_INSTALL}>نصب برنامه</option>
                                 <option value={RequestType.SERVER_RESTART}>درخواست ریستارت سرور</option>
+                                <option value={RequestType.LETTER_FOLLOWUP}>درخواست پیگیری نامه</option>
                                 {SHOW_VIDEO_CONFERENCE_IN_MENU && (currentUser.role === Role.REQUESTER || currentUser.role === Role.V_REQUESTER || isEditing) && (
                                     <option value={RequestType.VIDEO_CONFRENCE}>درخواست ویدئو کنفرانس</option>
                                 )}
                             </select>
                         )}
                     </div>
-                    {!isEditing && requestType !== RequestType.USB_PORT && (
+                    {!isEditing && requestType !== RequestType.USB_PORT && requestType !== RequestType.LETTER_FOLLOWUP && (
                         <div>
                             <label className="font-bold text-gray-800 block mb-3 text-lg">
                                 انتخاب سامانه: <span className="text-red-500">*</span>
@@ -717,6 +834,27 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                             )}
                         </div>
                     )}
+
+                    {/* Notification Section */}
+                    <div className="mt-4">
+                        <label className="font-bold text-gray-800 block mb-2 text-lg">
+                            اطلاع‌رسانی به کاربران همگروه:
+                        </label>
+                        <div className="text-sm text-gray-600 mb-2">
+                            می‌توانید این درخواست را به اطلاع کاربران همگروه خود برسانید تا از مراحل پیشرفت کار مطلع شوند.
+                        </div>
+                        <UserSelector
+                            value={notifyUserIds}
+                            onChange={setNotifyUserIds}
+                            disabled={isSubmitting}
+                            placeholder="انتخاب کاربران همگروه برای اطلاع‌رسانی"
+                        />
+                        {notifyUserIds.length > 0 && (
+                            <div className="mt-2 text-sm text-blue-600">
+                                {notifyUserIds.length} کاربر برای اطلاع‌رسانی انتخاب شده‌اند
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -772,6 +910,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                         className="focus:ring-[#3498db]"
                                     />
+                                    {file.sourceIP && (
+                                        <div className="mt-2">
+                                            <IpWithSystemDisplay 
+                                                ip={file.sourceIP} 
+                                                showWarning={false}
+                                                compact={true}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 
                                 {/* مسیر فایل مبدا */}
@@ -802,6 +949,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
                                         required
                                     />
+                                    {file.destinationIP && (
+                                        <div className="mt-2">
+                                            <IpWithSystemDisplay 
+                                                ip={file.destinationIP} 
+                                                showWarning={true}
+                                                compact={true}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 
                                 {/* مسیر فایل مقصد */}
@@ -889,6 +1045,105 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                     />
                                 </div>
+
+                                {/* بخش آپلود فایل - فقط برای انتقال درون‌سامانه‌ای */}
+                                {isEditing && file.uploadedFile ? (
+                                    <div className="md:col-span-2">
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                            <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                <span>فایل آپلود شده</span>
+                                            </div>
+                                            <div className="text-sm text-green-700">
+                                                <div>نام فایل: {file.uploadedFile.originalFilename}</div>
+                                                <div>حجم: {(file.uploadedFile.fileSize / (1024 * 1024)).toFixed(2)} مگابایت</div>
+                                                <div>تاریخ آپلود: {new Date(file.uploadedFile.uploadedAt).toLocaleDateString('fa-IR')}</div>
+                                                <div>تاریخ انقضا: {new Date(file.uploadedFile.expiresAt).toLocaleDateString('fa-IR')}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : !isEditing && file.sourceIP && file.destinationIP && isDestinationInSameSystem(file.destinationIP) && !file.uploadedFile ? (
+                                    <div className="md:col-span-2">
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                            <div className="flex items-center gap-2 text-blue-800 font-semibold mb-2">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                                </svg>
+                                                <span>بارگذاری فایل <span className="text-red-500">*</span></span>
+                                            </div>
+                                            <p className="text-sm text-blue-700 mb-3">
+                                                آدرس IP مبدا و مقصد در یک سامانه قرار دارند. بارگذاری فایل (تا سقف ۱ گیگابایت) الزامی است.
+                                            </p>
+                                            <input
+                                                type="file"
+                                                id={`file-upload-${file.id}`}
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                    const selectedFile = e.target.files?.[0];
+                                                    if (selectedFile) {
+                                                        if (selectedFile.size > 1024 * 1024 * 1024) {
+                                                            showToast('حجم فایل نباید بیشتر از ۱ گیگابایت باشد', 'error');
+                                                            return;
+                                                        }
+                                                        setPendingUploads(prev => {
+                                                            // حذف آپلود قبلی برای همین fileId
+                                                            const filtered = prev.filter(p => p.fileId !== file.id);
+                                                            return [...filtered, { fileId: file.id, file: selectedFile }];
+                                                        });
+                                                        showToast(`فایل "${selectedFile.name}" انتخاب شد. پس از ارسال درخواست آپلود خواهد شد.`, 'success');
+                                                    }
+                                                }}
+                                                accept="*/*"
+                                            />
+                                            <div className="flex items-center gap-3">
+                                                <label
+                                                    htmlFor={`file-upload-${file.id}`}
+                                                    className="inline-flex items-center gap-2 px-4 py-2 bg-[#3498db] text-white rounded-md hover:bg-[#2980b9] cursor-pointer transition-colors"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                                    </svg>
+                                                    <span>انتخاب فایل</span>
+                                                </label>
+                                                {pendingUploads.find(p => p.fileId === file.id) && (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm text-green-700">
+                                                            {pendingUploads.find(p => p.fileId === file.id)?.file.name}
+                                                            ({((pendingUploads.find(p => p.fileId === file.id)?.file.size || 0) / (1024 * 1024)).toFixed(2)} مگابایت)
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setPendingUploads(prev => prev.filter(p => p.fileId !== file.id));
+                                                            }}
+                                                            className="text-red-500 hover:text-red-700"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : !isEditing && file.sourceIP && file.destinationIP && !isDestinationInSameSystem(file.destinationIP) ? (
+                                    <div className="md:col-span-2">
+                                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                            <div className="flex items-center gap-2 text-yellow-800 font-semibold mb-2">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                <span>انتقال بین سامانه‌ها</span>
+                                            </div>
+                                            <p className="text-sm text-yellow-700">
+                                                IP مقصد در سامانه انتخاب شده ثبت نشده است. انتقال فایل باید توسط تمام افراد مرتبط به صورت دستی تایید شود.
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                     ))}
@@ -929,6 +1184,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                         className="focus:ring-[#2ecc71]"
                                     />
+                                    {backup.serverIP && (
+                                        <div className="mt-2">
+                                            <IpWithSystemDisplay 
+                                                ip={backup.serverIP} 
+                                                showWarning={true}
+                                                compact={true}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">نحوه بکاپ گیری <span className="text-red-500">*</span></label>
@@ -1133,6 +1397,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                         className="focus:ring-[#e67e22]"
                                     />
+                                    {tape.serverIP && (
+                                        <div className="mt-2">
+                                            <IpWithSystemDisplay 
+                                                ip={tape.serverIP} 
+                                                showWarning={true}
+                                                compact={true}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="md:col-span-2">
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
@@ -1210,6 +1483,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#16a085]" 
                                         required
                                     />
+                                    {usbPort.serverIP && (
+                                        <div className="mt-2">
+                                            <IpWithSystemDisplay 
+                                                ip={usbPort.serverIP} 
+                                                showWarning={true}
+                                                compact={true}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
@@ -1275,6 +1557,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                         className="focus:ring-[#8e44ad]"
                                     />
+                                    {appInstall.serverIP && (
+                                        <div className="mt-2">
+                                            <IpWithSystemDisplay 
+                                                ip={appInstall.serverIP} 
+                                                showWarning={true}
+                                                compact={true}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
@@ -1339,6 +1630,15 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                         required
                         className="focus:ring-[#c0392b]"
                         />
+                        {sr.serverIP && (
+                            <div className="mt-2">
+                                <IpWithSystemDisplay 
+                                    ip={sr.serverIP} 
+                                    showWarning={true}
+                                    compact={true}
+                                />
+                            </div>
+                        )}
                     </div>
                     <div>
                         <label className="font-semibold text-sm text-gray-700 block mb-1">
@@ -1391,6 +1691,85 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 type="button"
                 onClick={addServerRestart}
                 className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#c0392b] rounded-lg text-[#c0392b] font-semibold hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#c0392b] focus:ring-offset-2"
+                >
+                <PlusCircleIcon className="w-5 h-5" />
+                <span>افزودن رکورد جدید</span>
+                </button>
+            </div>
+            )}
+
+            {/* پیگیری نامه */}
+            {requestType === RequestType.LETTER_FOLLOWUP && (
+            <div id="letter-followup-container" className="space-y-5">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+                    نامه قبلاً از سامانه دیگر ارسال و توسط رئیس واحد و مدیرکل/معاون تأیید شده است. در اینجا فقط وضعیت پیگیری بررسی می‌شود.
+                </div>
+                {letterFollowups.map((lf, index) => (
+                <div key={lf.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 relative shadow-sm hover:shadow-md transition-shadow">
+                    <div className="absolute -top-3 right-5 bg-[#2980b9] text-white px-3 py-1 text-sm font-bold rounded shadow-md">پیگیری نامه</div>
+                    <div className="flex justify-between items-center mt-3 mb-4">
+                    <div className="text-sm font-semibold text-gray-500">مشخصات {index + 1}</div>
+                    <div className="flex gap-2">
+                        {letterFollowups.length > 1 && (
+                        <button
+                            type="button"
+                            onClick={() => removeLetterFollowup(lf.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                        >
+                            <Trash2Icon className="w-4 h-4" />
+                            <span>حذف</span>
+                        </button>
+                        )}
+                    </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="font-semibold text-sm text-gray-700 block mb-1">
+                        شماره نامه <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                        type="text"
+                        value={lf.letterNumber}
+                        onChange={(e) => handleLetterFollowupChange(index, 'letterNumber', e.target.value)}
+                        className="w-full p-2.5 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#2980b9] focus:border-[#2980b9] transition-all"
+                        required
+                        />
+                    </div>
+                    <div>
+                        <label className="font-semibold text-sm text-gray-700 block mb-1">
+                        موضوع نامه <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                        value={lf.letterSubject}
+                        onChange={(e) => handleLetterFollowupChange(index, 'letterSubject', e.target.value)}
+                        className="w-full p-2.5 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#2980b9] focus:border-[#2980b9] transition-all"
+                        required
+                        >
+                        <option value="">انتخاب کنید...</option>
+                        {LETTER_FOLLOWUP_SUBJECT_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                        </select>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="font-semibold text-sm text-gray-700 block mb-1">
+                        توضیحات
+                        </label>
+                        <textarea
+                        value={lf.description || ''}
+                        onChange={(e) => handleLetterFollowupChange(index, 'description', e.target.value)}
+                        rows={3}
+                        placeholder="توضیحات اختیاری درباره پیگیری نامه"
+                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#2980b9] resize-y"
+                        />
+                    </div>
+                    </div>
+                </div>
+                ))}
+                <button
+                type="button"
+                onClick={addLetterFollowup}
+                className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-[#2980b9] rounded-lg text-[#2980b9] font-semibold hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#2980b9] focus:ring-offset-2"
                 >
                 <PlusCircleIcon className="w-5 h-5" />
                 <span>افزودن رکورد جدید</span>

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Request, RequestType, User } from '../types';
+import { Request, RequestType, User, LetterFollowupSubject } from '../types';
+import { LETTER_FOLLOWUP_SUBJECT_LABELS } from '../constants';
 import { formatTime24Display } from '../utils/time24';
 import ApprovalStatus from './ApprovalStatus';
+import IpWithSystemDisplay from './IpWithSystemDisplay';
 import { XCircleIcon } from './icons';
 import ConfirmDialog from './ConfirmDialog';
 import RequestForm from './RequestForm';
@@ -94,6 +96,7 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, c
             appInstalls: editingRequest.appInstalls || [],
             serverRestarts: editingRequest.serverRestarts || [],
             videoConferences: editingRequest.videoConferences || [],
+            letterFollowups: editingRequest.letterFollowups || [],
           }}
           isEditing={true}
         />
@@ -150,6 +153,7 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, c
             const isAppInstall = request.requestType === RequestType.APP_INSTALL;
             const isServerRestart = request.requestType === RequestType.SERVER_RESTART;
             const isVideoConference = request.requestType === RequestType.VIDEO_CONFRENCE;
+            const isLetterFollowup = request.requestType === RequestType.LETTER_FOLLOWUP;
             
             return (
               <div key={request.id} className={`bg-white border-2 rounded-lg shadow-sm transition-all ${
@@ -173,9 +177,10 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, c
                         isAppInstall ? 'bg-purple-100 text-purple-800' :
                         isServerRestart ? 'bg-red-100 text-red-800' :
                         isVideoConference ? 'bg-rose-100 text-rose-800' :
+                        isLetterFollowup ? 'bg-sky-100 text-sky-800' :
                         'bg-green-100 text-green-800'
                       }`}>
-                        {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : 'Backup'}
+                        {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : isLetterFollowup ? 'پیگیری نامه' : 'Backup'}
                       </span>
                       <div className="text-sm text-gray-700">
                         {new Date(request.createdAt).toLocaleDateString('fa-IR')}
@@ -183,6 +188,11 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, c
                       <div className="text-sm text-red-600 font-semibold">
                         رد شده
                       </div>
+                      {request.isNotification && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-800 text-xs font-medium rounded border border-amber-300">
+                          🔔 اطلاع‌رسانی شده
+                        </span>
+                      )}
                     </div>
                     <button 
                       className="text-[#e74c3c] hover:text-[#c0392b] font-semibold px-4 py-2 rounded-md hover:bg-red-100 transition-all"
@@ -243,9 +253,17 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, c
                               
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm mb-3">
                                 <div className="md:col-span-2"><strong className="text-gray-500">نام فایل:</strong> {file.fileName}</div>
-                                <div><strong className="text-gray-500">آدرس IP مبدا:</strong> {file.sourceIP}</div>
+                                <div><strong className="text-gray-500">آدرس IP مبدا:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={file.sourceIP} showWarning={false} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                 <div><strong className="text-gray-500">مسیر فایل مبدا:</strong> {file.sourceFilePath}</div>
-                                <div><strong className="text-gray-500">آدرس IP مقصد:</strong> {file.destinationIP}</div>
+                                <div><strong className="text-gray-500">آدرس IP مقصد:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={file.destinationIP} showWarning={true} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                 <div><strong className="text-gray-500">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
                               </div>
                               
@@ -361,6 +379,17 @@ const RejectedRequestsList: React.FC<RejectedRequestsListProps> = ({ requests, c
                               <div><strong className="text-gray-500">تعداد شرکت‌کننده:</strong> {vc.participantCount || '—'}</div>
                               <div><strong className="text-gray-500">ساعت شروع:</strong> {vc.startTime || '—'}</div>
                               <div><strong className="text-gray-500">ساعت پایان:</strong> {vc.endTime || '—'}</div>
+                            </div>
+                          </div>
+                        ))}
+
+                        {isLetterFollowup && request.letterFollowups && request.letterFollowups.map((lf, lfIndex) => (
+                          <div key={lf.id} className="p-3 bg-sky-50 rounded-md border border-sky-100">
+                            <div className="font-bold text-gray-700 mb-2">پیگیری نامه {lfIndex + 1}</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                              <div><strong className="text-gray-500">شماره نامه:</strong> {lf.letterNumber}</div>
+                              <div><strong className="text-gray-500">موضوع نامه:</strong> {lf.letterSubject ? LETTER_FOLLOWUP_SUBJECT_LABELS[lf.letterSubject as LetterFollowupSubject] : '—'}</div>
+                              <div className="md:col-span-2"><strong className="text-gray-500">توضیحات:</strong> {lf.description || '—'}</div>
                             </div>
                           </div>
                         ))}

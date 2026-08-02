@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Request, Role, Status, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, RequestType } from '../types';
+import { Request, Role, Status, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, LetterFollowupDetail, RequestType } from '../types';
 import { ROLE_HIERARCHY } from '../constants';
 import RequestForm from '../components/RequestForm';
 import RequestList from '../components/RequestList';
@@ -124,6 +124,8 @@ const MainApp: React.FC = () => {
                         ? request.videoConferences?.length || 0
                         : request.requestType === RequestType.SERVER_RESTART
                         ? request.serverRestarts?.length || 0
+                        : request.requestType === RequestType.LETTER_FOLLOWUP
+                        ? request.letterFollowups?.length || 0
                         : request.appInstalls?.length || 0;
                 const itemsType = request.requestType === RequestType.FILE_TRANSFER 
                     ? 'فایل' 
@@ -139,6 +141,8 @@ const MainApp: React.FC = () => {
                     ? 'درخواست ویدئو کنفرانس'
                     : request.requestType === RequestType.SERVER_RESTART
                     ? 'ریستارت سرور'
+                    : request.requestType === RequestType.LETTER_FOLLOWUP
+                    ? 'پیگیری نامه'
                     : 'درخواست نصب برنامه';
                 
                 showNotification({
@@ -157,9 +161,13 @@ const MainApp: React.FC = () => {
 
     // Notification برای REQUESTER / V_REQUESTER (درخواست‌های تکمیل شده)
     useEffect(() => {
-        if (!isDesktopRequester) return;
-
-        const completedRequests = historyRequests.filter(req => req.status === Status.COMPLETED);
+        // این اعلان برای کاربران درخواست‌دهنده اصلی و کاربران اطلاع‌رسانی شده نمایش داده می‌شود
+        // کاربران اطلاع‌رسانی شده شامل: درخواست‌هایی که notification_for_user_id برابر با ID کاربر فعلی است
+        const completedRequests = historyRequests.filter(req => 
+            req.status === Status.COMPLETED && 
+            (req.requesterId === currentUser.id || req.notificationForUserId === currentUser.id)
+        );
+        
         const currentCompletedIds = new Set(completedRequests.map(req => req.id));
 
         const newlyCompletedIds = Array.from(currentCompletedIds).filter(
@@ -170,6 +178,7 @@ const MainApp: React.FC = () => {
             newlyCompletedIds.forEach(id => {
                 const request = completedRequests.find(req => req.id === id);
                 if (request) {
+                    const isNotificationForCurrentUser = request.notificationForUserId === currentUser.id;
                     const requestType = request.requestType === RequestType.FILE_TRANSFER 
                         ? 'انتقال فایل' 
                         : request.requestType === RequestType.BACKUP 
@@ -184,13 +193,25 @@ const MainApp: React.FC = () => {
                         ? 'ویدئو کنفرانس'
                         : request.requestType === RequestType.SERVER_RESTART
                         ? 'ریستارت سرور'
+                        : request.requestType === RequestType.LETTER_FOLLOWUP
+                        ? 'پیگیری نامه'
                         : 'نصب برنامه';
                     
-                    showNotification({
-                        title: '✅ درخواست شما انجام شد',
-                        body: request.requestType === RequestType.VIDEO_CONFRENCE
+                    const notificationTitle = isNotificationForCurrentUser 
+                        ? '🔔 درخواست اطلاع‌رسانی شده انجام شد'
+                        : '✅ درخواست شما انجام شد';
+                    
+                    const notificationBody = isNotificationForCurrentUser 
+                        ? (request.requestType === RequestType.VIDEO_CONFRENCE
+                            ? `درخواست ویدئو کنفرانس (#${request.id.split('-')[1]}) که برای شما اطلاع‌رسانی شده بود، تأیید و تکمیل شد.`
+                            : `درخواست ${requestType} (#${request.id.split('-')[1]}) که برای شما اطلاع‌رسانی شده بود، با موفقیت توسط مسئول شبکه انجام و تکمیل شد.`)
+                        : (request.requestType === RequestType.VIDEO_CONFRENCE
                             ? `درخواست ویدئو کنفرانس شما (#${request.id.split('-')[1]}) تأیید و تکمیل شد. شماره اتاق در بخش تاریخچه نمایش داده می‌شود.`
-                            : `درخواست ${requestType} شما (#${request.id.split('-')[1]}) با موفقیت توسط مسئول شبکه انجام و تکمیل شد.`,
+                            : `درخواست ${requestType} شما (#${request.id.split('-')[1]}) با موفقیت توسط مسئول شبکه انجام و تکمیل شد.`);
+                    
+                    showNotification({
+                        title: notificationTitle,
+                        body: notificationBody,
                         tag: `completed-${request.id}`,
                     }).catch(error => {
                         console.error('خطا در نمایش Notification:', error);
@@ -200,7 +221,7 @@ const MainApp: React.FC = () => {
         }
 
         previousCompletedIdsRef.current = currentCompletedIds;
-    }, [historyRequests, showNotification, isDesktopRequester]);
+    }, [historyRequests, showNotification, currentUser.id]);
 
     // Notification برای درخواست‌دهندگان (درخواست‌های رد شده - جدید)
     useEffect(() => {
@@ -230,6 +251,8 @@ const MainApp: React.FC = () => {
                         ? 'ویدئو کنفرانس'
                         : request.requestType === RequestType.SERVER_RESTART
                         ? 'ریستارت سرور'
+                        : request.requestType === RequestType.LETTER_FOLLOWUP
+                        ? 'پیگیری نامه'
                         : 'نصب برنامه';
                     
                     showNotification({
@@ -246,11 +269,49 @@ const MainApp: React.FC = () => {
         previousRejectedIdsRef.current = currentRejectedIds;
     }, [rejectedRequests, showNotification, isDesktopRequester]);
 
-    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => {
+    const handleCreateRequest = async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[]; letterFollowups?: LetterFollowupDetail[]; pendingUploads?: { fileId: string; file: File }[] }) => {
         try {
-            const newRequest = await requestsAPI.create(data);
-            setRequests(prev => [newRequest, ...prev]);
-            setHistoryRequests(prev => [newRequest, ...prev]);
+            const { pendingUploads, ...requestData } = data;
+            
+            // اگر فایلی برای آپلود وجود دارد، ابتدا درخواست را ایجاد کن
+            const newRequest = await requestsAPI.create(requestData);
+            
+            // آپلود فایل‌های انتظار
+            let uploadSuccess = true;
+            if (pendingUploads && pendingUploads.length > 0) {
+                for (const pending of pendingUploads) {
+                    try {
+                        await requestsAPI.uploadFile(newRequest.id, pending.fileId, pending.file);
+                    } catch (uploadError: any) {
+                        uploadSuccess = false;
+                        alert(`خطا در آپلود فایل "${pending.file.name}": ${uploadError.message}`);
+                        break;
+                    }
+                }
+                
+                // اگر آپلود موفق بود، درخواست به‌روز شده را از سرور بگیر
+                if (uploadSuccess) {
+                    try {
+                        const updatedRequest = await requestsAPI.getById(newRequest.id);
+                        setRequests(prev => [updatedRequest, ...prev]);
+                        setHistoryRequests(prev => [updatedRequest, ...prev.filter(r => r.id !== updatedRequest.id)]);
+                    } catch {
+                        setRequests(prev => [newRequest, ...prev]);
+                        setHistoryRequests(prev => [newRequest, ...prev]);
+                    }
+                } else {
+                    // اگر آپلود ناموفق بود، درخواست را لغو کن
+                    try {
+                        await requestsAPI.cancel(newRequest.id);
+                    } catch { /* ignore */ }
+                    alert('درخواست به دلیل خطا در آپلود فایل لغو شد.');
+                    return;
+                }
+            } else {
+                setRequests(prev => [newRequest, ...prev]);
+                setHistoryRequests(prev => [newRequest, ...prev]);
+            }
+            
             alert('درخواست شما با موفقیت ثبت و برای تایید ارسال شد.');
         } catch (error: any) {
             alert(error.message || 'خطا در ایجاد درخواست');
@@ -297,7 +358,7 @@ const MainApp: React.FC = () => {
         }
     };
 
-    const handleReviseRequest = async (id: string, data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }) => {
+    const handleReviseRequest = async (id: string, data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[]; letterFollowups?: LetterFollowupDetail[] }) => {
         try {
             const updatedRequest = await requestsAPI.revise(id, data);
             // حذف از لیست رد شده و اضافه به pending

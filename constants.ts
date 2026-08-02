@@ -1,5 +1,5 @@
 
-import { User, Role, Request, Status, RequestType } from './types';
+import { User, Role, Request, Status, RequestType, LetterFollowupSubject } from './types';
 
 /** نمایش «درخواست ویدئو کنفرانس» در منوی نوع درخواست (کد همچنان فعال است) */
 export const SHOW_VIDEO_CONFERENCE_IN_MENU = false;
@@ -28,6 +28,31 @@ export const ROLE_NAMES: { [key in Role]: string } = {
   [Role.NETWORK_ADMIN]: 'پشتیبانی شبکه',
   [Role.NETWORK_USB_ADMIN]: 'پشتیبانی USB',
   [Role.VC_ACCEPTER]: 'تأییدکننده ویدئو کنفرانس',
+};
+
+export const LETTER_FOLLOWUP_SUBJECT_OPTIONS: { value: LetterFollowupSubject; label: string }[] = [
+  { value: LetterFollowupSubject.NEW_SERVER, label: 'سرور جدید' },
+  { value: LetterFollowupSubject.CREATE_VDI, label: 'ایجاد VDI' },
+  { value: LetterFollowupSubject.VDI_ACCESS, label: 'دسترسی VDI' },
+  { value: LetterFollowupSubject.REMOVE_SERVER, label: 'حذف سرور' },
+  { value: LetterFollowupSubject.REMOVE_VDI_ACCESS, label: 'حذف دسترسی VDI' },
+  { value: LetterFollowupSubject.CHANGE_RESOURCES, label: 'افزایش/کاهش منابع' },
+  { value: LetterFollowupSubject.CREATE_TUNNEL, label: 'ایجاد تانل' },
+];
+
+/** شامل مقادیر قدیمی برای نمایش درخواست‌های ثبت‌شده پیش از تغییر گزینه‌ها */
+export const LETTER_FOLLOWUP_SUBJECT_LABELS: Record<string, string> = {
+  [LetterFollowupSubject.NEW_SERVER]: 'سرور جدید',
+  [LetterFollowupSubject.CREATE_VDI]: 'ایجاد VDI',
+  [LetterFollowupSubject.VDI_ACCESS]: 'دسترسی VDI',
+  [LetterFollowupSubject.REMOVE_SERVER]: 'حذف سرور',
+  [LetterFollowupSubject.REMOVE_VDI_ACCESS]: 'حذف دسترسی VDI',
+  [LetterFollowupSubject.CHANGE_RESOURCES]: 'افزایش/کاهش منابع',
+  [LetterFollowupSubject.CREATE_TUNNEL]: 'ایجاد تانل',
+  ADD_SERVER: 'سرور جدید',
+  ADD_VDI: 'ایجاد VDI',
+  REMOVE_VDI: 'حذف دسترسی VDI',
+  INCREASE_RESOURCES: 'افزایش/کاهش منابع',
 };
 
 export const STATUS_STYLES: { [key in Status]: { text: string; bg: string; color: string } } = {

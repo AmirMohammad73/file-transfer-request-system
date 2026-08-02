@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Request, User, Role, RequestType } from '../types';
+import { Request, User, Role, RequestType, LetterFollowupSubject } from '../types';
+import { LETTER_FOLLOWUP_SUBJECT_LABELS } from '../constants';
 import { formatTime24Display } from '../utils/time24';
 import ApprovalStatus from './ApprovalStatus';
+import IpWithSystemDisplay from './IpWithSystemDisplay';
 import { CheckCircleIcon, XCircleIcon } from './icons';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -109,6 +111,7 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
               const isAppInstall = request.requestType === RequestType.APP_INSTALL;
               const isServerRestart = request.requestType === RequestType.SERVER_RESTART;
               const isVideoConference = request.requestType === RequestType.VIDEO_CONFRENCE;
+              const isLetterFollowup = request.requestType === RequestType.LETTER_FOLLOWUP;
               
               return (
                 <div key={request.id} className={`bg-white border-2 rounded-lg shadow-sm transition-all ${
@@ -132,9 +135,10 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                           isAppInstall ? 'bg-purple-100 text-purple-800' :
                           isServerRestart ? 'bg-red-100 text-red-800' :
                           isVideoConference ? 'bg-rose-100 text-rose-800' :
+                          isLetterFollowup ? 'bg-sky-100 text-sky-800' :
                           'bg-green-100 text-green-800'
                         }`}>
-                          {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : 'Backup'}
+                          {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : isLetterFollowup ? 'پیگیری نامه' : 'Backup'}
                         </span>
                         {/* من اینجام - اضافه کردن واحد مربوطه */}
                         <div className="text-gray-700 flex flex-col md:flex-row md:items-center md:gap-4">
@@ -147,6 +151,16 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                               {request.department || 'تعیین نشده'}
                             </span>
                           </div>
+                          {request.selectedServerName && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-teal-100 text-teal-800 text-xs font-medium rounded border border-teal-300">
+                              🖥️ {request.selectedServerName}
+                            </span>
+                          )}
+                          {request.isNotification && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-800 text-xs font-medium rounded border border-amber-300">
+                              🔔 اطلاع‌رسانی شده
+                            </span>
+                          )}
                         </div>
                         <div className="text-sm text-gray-500">
                           {new Date(request.createdAt).toLocaleDateString('fa-IR')}
@@ -204,9 +218,17 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                                 {/* فیلدهای اصلی - همیشه نمایش داده می‌شوند */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm mb-3">
                                   <div className="md:col-span-2"><strong className="text-gray-500">نام فایل:</strong> {file.fileName}</div>
-                                  <div><strong className="text-gray-500">آدرس IP مبدا:</strong> {file.sourceIP}</div>
+                                  <div><strong className="text-gray-500">آدرس IP مبدا:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={file.sourceIP} showWarning={false} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                   <div><strong className="text-gray-500">مسیر فایل مبدا:</strong> {file.sourceFilePath}</div>
-                                  <div><strong className="text-gray-500">آدرس IP مقصد:</strong> {file.destinationIP}</div>
+                                  <div><strong className="text-gray-500">آدرس IP مقصد:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={file.destinationIP} showWarning={true} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                   <div><strong className="text-gray-500">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
                                 </div>
                                 
@@ -244,7 +266,11 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                             <div key={backup.id} className="p-3 bg-green-50 rounded-md border border-green-100">
                               <div className="font-bold text-gray-700 mb-2">Backup {backupIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                                <div><strong className="text-gray-500">IP سرور:</strong> {backup.serverIP}</div>
+                                <div><strong className="text-gray-500">IP سرور:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={backup.serverIP} showWarning={true} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                 <div><strong className="text-gray-500">نحوه بکاپ گیری:</strong> {backup.backupMethod === 'FULL' ? 'کامل' : 'تغییرات'}</div>
                                 <div className="md:col-span-2"><strong className="text-gray-500">مسیر نگهداری:</strong> {backup.storagePath || '—'}</div>
                                 <div><strong className="text-gray-500">زمان بندی:</strong> {backup.schedule}</div>
@@ -271,7 +297,11 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                             <div key={tape.id} className="p-3 bg-orange-50 rounded-md border border-orange-100">
                               <div className="font-bold text-gray-700 mb-2">Tape {tapeIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                                <div><strong className="text-gray-500">IP سرور:</strong> {tape.serverIP}</div>
+                                <div><strong className="text-gray-500">IP سرور:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={tape.serverIP} showWarning={true} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                 <div><strong className="text-gray-500">نام فایل:</strong> {tape.fileName}</div>
                                 <div className="md:col-span-2"><strong className="text-gray-500">مسیر فایل:</strong> {tape.filePath}</div>
                               </div>
@@ -282,7 +312,11 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                             <div key={usbPort.id} className="p-3 bg-teal-50 rounded-md border border-teal-100">
                               <div className="font-bold text-gray-700 mb-2">USB Port {usbIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                                <div><strong className="text-gray-500">IP سرور:</strong> {usbPort.serverIP}</div>
+                                <div><strong className="text-gray-500">IP سرور:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={usbPort.serverIP} showWarning={true} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                 <div><strong className="text-gray-500">مدت زمان:</strong> {usbPort.duration || '—'}</div>
                               </div>
                             </div>
@@ -292,7 +326,11 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                             <div key={appInstall.id} className="p-3 bg-purple-50 rounded-md border border-purple-100">
                               <div className="font-bold text-gray-700 mb-2">نصب برنامه {appIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                                <div><strong className="text-gray-500">IP سرور:</strong> {appInstall.serverIP}</div>
+                                <div><strong className="text-gray-500">IP سرور:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={appInstall.serverIP} showWarning={true} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                 <div><strong className="text-gray-500">نام برنامه یا لینک:</strong> {appInstall.appNameOrLink}</div>
                               </div>
                             </div>
@@ -302,7 +340,11 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                             <div key={sr.id} className="p-3 bg-red-50 rounded-md border border-red-100">
                               <div className="font-bold text-gray-700 mb-2">ریستارت سرور {srIndex + 1}</div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                                <div><strong className="text-gray-500">IP سرور:</strong> {sr.serverIP}</div>
+                                <div><strong className="text-gray-500">IP سرور:</strong> 
+                                  <div className="mt-1">
+                                    <IpWithSystemDisplay ip={sr.serverIP} showWarning={true} compact={true} className="text-xs" />
+                                  </div>
+                                </div>
                                 <div>
                                   <strong className="text-gray-500">زمان ریستارت:</strong>{' '}
                                   {sr.isUrgent ? (
@@ -327,7 +369,30 @@ const RequestList: React.FC<RequestListProps> = ({ requests, currentUser, onAppr
                               </div>
                             </div>
                           ))}
+
+                          {isLetterFollowup && request.letterFollowups && request.letterFollowups.map((lf, lfIndex) => (
+                            <div key={lf.id} className="p-3 bg-sky-50 rounded-md border border-sky-100">
+                              <div className="font-bold text-gray-700 mb-2">پیگیری نامه {lfIndex + 1}</div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                <div><strong className="text-gray-500">شماره نامه:</strong> {lf.letterNumber}</div>
+                                <div><strong className="text-gray-500">موضوع نامه:</strong> {lf.letterSubject ? LETTER_FOLLOWUP_SUBJECT_LABELS[lf.letterSubject as LetterFollowupSubject] : '—'}</div>
+                                <div className="md:col-span-2"><strong className="text-gray-500">توضیحات:</strong> {lf.description || '—'}</div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
+                        {/* اطلاعات سامانه */}
+                        {request.selectedServerName && (
+                          <div className="mb-4 p-3 bg-teal-50 rounded-md border border-teal-200">
+                            <div className="font-bold text-teal-800 text-sm mb-2">🖥️ اطلاعات سامانه</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                              <div><strong className="text-gray-600">نام سامانه:</strong> {request.selectedServerName}</div>
+                              {(request as any).selectedServerContName && <div><strong className="text-gray-600">پیمانکار:</strong> {(request as any).selectedServerContName}</div>}
+                              {(request as any).selectedServerRepName && <div><strong className="text-gray-600">نماینده:</strong> {(request as any).selectedServerRepName}</div>}
+                              {(request as any).selectedServerIP && <div><strong className="text-gray-600">IP سرور:</strong> <span className="font-mono">{(request as any).selectedServerIP}</span></div>}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Approval Status */}
                         <ApprovalStatus request={request} />

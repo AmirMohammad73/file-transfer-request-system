@@ -1,4 +1,4 @@
-import { User, Request, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, RequestType, BackupResource, Contractor, BackupServer } from '../types';
+import { User, Request, FileDetail, BackupDetail, VDIDetail, TapeDetail, USBPortDetail, AppInstallDetail, VideoConferenceDetail, ServerRestartDetail, LetterFollowupDetail, RequestType, BackupResource, Contractor, BackupServer, UploadedFileInfo } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:5000/api');
 
@@ -60,11 +60,20 @@ export const authAPI = {
       body: JSON.stringify({ currentPassword, newPassword }),
     });
   },
+
+  // ── Same Group Users ──
+  getSameGroupUsers: async (): Promise<User[]> => {
+    return apiCall<User[]>('/auth/same-group-users');
+  },
 };
 
 export const requestsAPI = {
   getAll: async (): Promise<Request[]> => {
     return apiCall<Request[]>('/requests');
+  },
+
+  getById: async (id: string): Promise<Request> => {
+    return apiCall<Request>(`/requests/${id}`);
   },
 
   getHistory: async (): Promise<Request[]> => {
@@ -75,7 +84,19 @@ export const requestsAPI = {
     return apiCall<Request[]>('/requests/rejected');
   },
 
-  create: async (data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }): Promise<Request> => {
+  create: async (data: { 
+    type: RequestType; 
+    files?: FileDetail[]; 
+    backups?: BackupDetail[]; 
+    vdis?: VDIDetail[]; 
+    tapes?: TapeDetail[]; 
+    usbPorts?: USBPortDetail[]; 
+    appInstalls?: AppInstallDetail[]; 
+    serverRestarts?: ServerRestartDetail[]; 
+    videoConferences?: VideoConferenceDetail[]; 
+    letterFollowups?: LetterFollowupDetail[];
+    notifyUserIds?: string[];
+  }): Promise<Request> => {
     return apiCall<Request>('/requests', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -105,7 +126,18 @@ export const requestsAPI = {
     });
   },
 
-  revise: async (id: string, data: { type: RequestType; files?: FileDetail[]; backups?: BackupDetail[]; vdis?: VDIDetail[]; tapes?: TapeDetail[]; usbPorts?: USBPortDetail[]; appInstalls?: AppInstallDetail[]; serverRestarts?: ServerRestartDetail[]; videoConferences?: VideoConferenceDetail[] }): Promise<Request> => {
+  revise: async (id: string, data: { 
+    type: RequestType; 
+    files?: FileDetail[]; 
+    backups?: BackupDetail[]; 
+    vdis?: VDIDetail[]; 
+    tapes?: TapeDetail[]; 
+    usbPorts?: USBPortDetail[]; 
+    appInstalls?: AppInstallDetail[]; 
+    serverRestarts?: ServerRestartDetail[]; 
+    videoConferences?: VideoConferenceDetail[]; 
+    letterFollowups?: LetterFollowupDetail[] 
+  }): Promise<Request> => {
     return apiCall<Request>(`/requests/${id}/revise`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -117,6 +149,64 @@ export const requestsAPI = {
       method: 'PUT',
       body: JSON.stringify({ letterNumber }),
     });
+  },
+
+  // ── آپلود فایل ──
+  uploadFile: async (requestId: string, fileId: string, file: File): Promise<{ message: string; uploadedFile: UploadedFileInfo }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/requests/${requestId}/upload/${fileId}`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'خطای سرور' }));
+      throw new Error(error.error || 'خطا در آپلود فایل');
+    }
+
+    return response.json();
+  },
+
+  // ── دانلود فایل ──
+  downloadFile: async (requestId: string, fileId: string): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/requests/${requestId}/download/${fileId}`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'خطای سرور' }));
+      throw new Error(error.error || 'خطا در دانلود فایل');
+    }
+
+    // دریافت نام فایل از هدر
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = 'download';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i);
+      if (filenameMatch) {
+        filename = decodeURIComponent(filenameMatch[1].replace(/"/g, ''));
+      }
+    }
+
+    // تبدیل پاسخ به Blob و دانلود
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
+
+  // ── بررسی وضعیت آپلود ──
+  getUploadStatus: async (requestId: string, fileId: string): Promise<{ hasUpload: boolean; isSameSystem: boolean; uploadedFile: UploadedFileInfo | null; canUpload: boolean }> => {
+    return apiCall(`/requests/${requestId}/upload-status/${fileId}`);
   },
 };
 
@@ -168,6 +258,8 @@ export const backupResourcesAPI = {
   addServer: async (contractorId: number, data: {
     ip: string;
     vmname?: string;
+    dns?: string;
+    relatedDepartments?: string;
     url?: string;
     type?: string;
     backupOperator?: string;
@@ -182,6 +274,8 @@ export const backupResourcesAPI = {
   updateServer: async (serverId: number, data: {
     ip: string;
     vmname?: string;
+    dns?: string;
+    relatedDepartments?: string;
     url?: string;
     type?: string;
     backupOperator?: string;
@@ -210,5 +304,22 @@ export const backupResourcesAPI = {
   // ── PDF Report ──
   getPdfReport: async (): Promise<any[]> => {
     return apiCall<any[]>('/backup-resources/pdf-report');
+  },
+  
+  // ── System by IP ──
+  getSystemByIp: async (ip: string): Promise<{
+    ip: string;
+    systemName: string | null;
+    contName: string | null;
+    vmname: string | null;
+    registered: boolean;
+  }> => {
+    return apiCall<{
+      ip: string;
+      systemName: string | null;
+      contName: string | null;
+      vmname: string | null;
+      registered: boolean;
+    }>(`/backup-resources/system-by-ip/${encodeURIComponent(ip)}`);
   },
 };

@@ -256,3 +256,53 @@ router.post('/logout', (req: Request, res: Response) => {
 
 export default router;
 
+
+
+// Get users in same group (for notification sharing)
+router.get('/same-group-users', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+
+    // Get current user's group_ids
+    const userResult = await pool.query(
+      'SELECT group_ids FROM req_users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'کاربر یافت نشد' });
+    }
+
+    const userGroupIds = userResult.rows[0].group_ids || [];
+    
+    if (userGroupIds.length === 0) {
+      // اگر کاربر عضو هیچ گروهی نیست، لیست خالی برگردان
+      return res.json([]);
+    }
+
+    // Find other users who share at least one group with current user
+    // به جز خود کاربر فعلی و فقط کاربران با نقش REQUESTER (نه V_REQUESTER)
+    const result = await pool.query(`
+      SELECT id, name, username, role, department, group_ids
+      FROM req_users 
+      WHERE id != $1 
+        AND group_ids && $2::integer[]
+        AND role = 'REQUESTER'
+      ORDER BY name ASC
+    `, [userId, userGroupIds]);
+
+    const users = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      username: row.username,
+      role: row.role,
+      department: row.department,
+      groupIds: row.group_ids || [],
+    }));
+
+    res.json(users);
+  } catch (error: any) {
+    console.error('Get same group users error:', error);
+    res.status(500).json({ error: 'خطا در دریافت کاربران همگروه' });
+  }
+});

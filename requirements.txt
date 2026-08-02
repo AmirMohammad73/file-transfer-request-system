@@ -89,6 +89,9 @@ ALTER TYPE user_role ADD VALUE 'VC_ACCEPTER';
 -- درخواست ریستارت سرور (در صورت «already exists» نادیده بگیرید)
 ALTER TYPE request_type ADD VALUE 'SERVER_RESTART';
 
+-- درخواست پیگیری نامه (در صورت «already exists» نادیده بگیرید)
+ALTER TYPE request_type ADD VALUE 'LETTER_FOLLOWUP';
+
 -- ============================================
 -- توجه: اگر enum user_role وجود ندارد، ابتدا آن را ایجاد کنید:
 -- ============================================
@@ -313,3 +316,79 @@ CREATE INDEX IF NOT EXISTS idx_backup_resources_contractor_id
 --   backup_period    VARCHAR(255)
 --   contractor_id    INTEGER REFERENCES contractor(id) ON DELETE SET NULL
 -- ============================================================
+
+-- ============================================================
+-- درخواست پیگیری نامه (LETTER_FOLLOWUP)
+-- ============================================================
+-- نوع درخواست جدید: LETTER_FOLLOWUP
+-- (دستور ALTER TYPE در بالا اضافه شده است)
+--
+-- داده‌های درخواست در ستون files (JSONB) ذخیره می‌شوند:
+-- [
+--   {
+--     "id": "lf-1234567890",
+--     "letterNumber": "123/456",     -- اجباری
+--     "letterSubject": "NEW_SERVER", -- اجباری؛ مقادیر مجاز:
+--       -- NEW_SERVER          → سرور جدید
+--       -- CREATE_VDI          → ایجاد VDI
+--       -- VDI_ACCESS          → دسترسی VDI
+--       -- REMOVE_SERVER       → حذف سرور
+--       -- REMOVE_VDI_ACCESS   → حذف دسترسی VDI
+--       -- CHANGE_RESOURCES    → افزایش/کاهش منابع
+--       -- CREATE_TUNNEL       → ایجاد تانل
+--     (مقادیر قدیمی ADD_SERVER, ADD_VDI, REMOVE_VDI, INCREASE_RESOURCES همچنان معتبرند)
+--     "description": "توضیحات..."    -- اختیاری
+--   }
+-- ]
+--
+-- توجه: تغییر schema دیتابیس لازم نیست؛ فیلد letterSubject در JSONB ذخیره می‌شود.
+-- درخواست‌های قدیمی بدون letterSubject همچنان نمایش داده می‌شوند (موضوع: —).
+--
+-- جریان تأیید:
+-- - رئیس واحد (GROUP_LEAD) و مدیرکل/معاون (DEPUTY): تأیید خودکار
+--   با approverName = «تایید خودکار» و isAutoApproved = true
+-- - مسئول شبکه (NETWORK_HEAD) و مدیر شبکه (NETWORK_ADMIN): تأیید دستی
+-- ============================================================
+
+
+-- ============================================
+-- تغییرات برای اصلاح vmname و اضافه کردن ستون DNS
+-- تاریخ: آگوست ۲۰۲۶
+-- ============================================
+
+-- ۱. اضافه کردن ستون DNS به جدول backup_resources
+ALTER TABLE backup_resources
+ADD COLUMN IF NOT EXISTS dns VARCHAR(255);
+
+-- ۲. تبدیل vmname به نام اصلی (به جای DNS)
+-- (نیازی به تغییر داده‌های موجود نیست، فقط عنوان نمایش تغییر می‌کند)
+
+-- ۳. ساختار نهایی جدول backup_resources با تغییرات:
+--    id               SERIAL PRIMARY KEY
+--    ip               INET NOT NULL       -- آدرس IP (اجباری)
+--    vmname           VARCHAR(255) NOT NULL   -- نام VM (اجباری)
+--    dns              VARCHAR(255)         -- آدرس DNS (جدید)
+--    url              VARCHAR(255)
+--    type             VARCHAR(50)
+--    backup_operator  VARCHAR(255)
+--    backup_period    VARCHAR(255)
+--    contractor_id    INTEGER REFERENCES contractor(id) ON DELETE SET NULL
+-- ============================================
+
+
+-- ۴. اضافه کردن ستون ادارات مرتبط به جدول backup_resources
+ALTER TABLE backup_resources
+ADD COLUMN IF NOT EXISTS related_departments VARCHAR(255);
+
+-- ۵. ساختار نهایی جدول backup_resources با تغییرات:
+--    id                  SERIAL PRIMARY KEY
+--    ip                  INET NOT NULL       -- آدرس IP (اجباری)
+--    vmname              VARCHAR(255) NOT NULL   -- نام VM (اجباری)
+--    dns                 VARCHAR(255)         -- آدرس DNS
+--    related_departments VARCHAR(255)         -- ادارات مرتبط (جدید)
+--    url                 VARCHAR(255)
+--    type                VARCHAR(50)
+--    backup_operator     VARCHAR(255)
+--    backup_period       VARCHAR(255)
+--    contractor_id       INTEGER REFERENCES contractor(id) ON DELETE SET NULL
+-- ============================================

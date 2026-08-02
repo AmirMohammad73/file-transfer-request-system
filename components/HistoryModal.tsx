@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Request, RequestType, Status } from '../types';
+import { Request, RequestType, Status, LetterFollowupSubject } from '../types';
 import { formatTime24Display } from '../utils/time24';
-import { STATUS_STYLES } from '../constants';
+import { STATUS_STYLES, LETTER_FOLLOWUP_SUBJECT_LABELS } from '../constants';
 import ApprovalStatus from './ApprovalStatus';
+import IpWithSystemDisplay from './IpWithSystemDisplay';
 import { requestsAPI } from '../utils/api';
 import { useAuth } from '../auth/AuthContext';
 import PersianDatePicker from './PersianDatePicker';
 import { useToastContext } from './ToastContainer';
 import ConfirmDialog from './ConfirmDialog';
+import { requestMatchesLetterNumberFilter } from '../utils/requestLetterNumbers';
 
 interface HistoryModalProps {
   isOpen: boolean;
@@ -29,12 +31,14 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [selectedCancelId, setSelectedCancelId] = useState<string | null>(null);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
 
   const [filterRequestType, setFilterRequestType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterIP, setFilterIP] = useState('');
   const [filterRequesterName, setFilterRequesterName] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('');
+  const [filterLetterNumber, setFilterLetterNumber] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
 
@@ -46,7 +50,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterRequestType, filterStatus, filterIP, filterRequesterName, filterDepartment, filterDateFrom, filterDateTo]);
+  }, [filterRequestType, filterStatus, filterIP, filterRequesterName, filterDepartment, filterLetterNumber, filterDateFrom, filterDateTo]);
 
   const fetchHistory = async () => {
     try {
@@ -95,6 +99,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
       
       if (filterRequesterName && !request.requesterName.includes(filterRequesterName)) { return false; }
       if (filterDepartment && !(request as any).department?.includes(filterDepartment)) { return false; }
+      if (filterLetterNumber && !requestMatchesLetterNumberFilter(request, filterLetterNumber)) { return false; }
       
       if (filterDateFrom || filterDateTo) {
         const requestDate = new Date(request.createdAt);
@@ -111,7 +116,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
       }
       return true;
     });
-  }, [requests, filterRequestType, filterStatus, filterIP, filterRequesterName, filterDepartment, filterDateFrom, filterDateTo]);
+  }, [requests, filterRequestType, filterStatus, filterIP, filterRequesterName, filterDepartment, filterLetterNumber, filterDateFrom, filterDateTo]);
 
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE);
   const paginatedRequests = useMemo(() => {
@@ -125,6 +130,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     setFilterIP('');
     setFilterRequesterName('');
     setFilterDepartment('');
+    setFilterLetterNumber('');
     setFilterDateFrom('');
     setFilterDateTo('');
   };
@@ -174,6 +180,20 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
     setShowCancelDialog(true);
   };
 
+  const handleDownloadFile = async (requestId: string, fileId: string, fileName: string) => {
+    setDownloadingFileId(fileId);
+    try {
+      await requestsAPI.downloadFile(requestId, fileId);
+      showToast(`فایل "${fileName}" با موفقیت دانلود شد`, 'success');
+      // رفرش تاریخچه برای به‌روزرسانی وضعیت
+      await fetchHistory();
+    } catch (error: any) {
+      showToast(error.message || 'خطا در دانلود فایل', 'error');
+    } finally {
+      setDownloadingFileId(null);
+    }
+  };
+
   const handleCancelConfirm = async () => {
     if (selectedCancelId && onCancel) {
       try {
@@ -191,7 +211,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
 
   if (!isOpen) return null;
 
-  const hasActiveFilters = filterRequestType || filterStatus || filterIP || filterRequesterName || filterDepartment || filterDateFrom || filterDateTo;
+  const hasActiveFilters = filterRequestType || filterStatus || filterIP || filterRequesterName || filterDepartment || filterLetterNumber || filterDateFrom || filterDateTo;
   const selectedCancelRequest = requests.find(r => r.id === selectedCancelId);
 
   return (
@@ -218,7 +238,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
         
         {/* Filters Section */}
         <div className="p-4 bg-gray-50 border-b border-gray-200">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">نوع درخواست</label>
               <select value={filterRequestType} onChange={(e) => setFilterRequestType(e.target.value)} className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]">
@@ -230,6 +250,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                 <option value="USB_PORT">USB Port</option>
                 <option value="APP_INSTALL">نصب برنامه</option>
                 <option value="SERVER_RESTART">ریستارت سرور</option>
+                <option value="LETTER_FOLLOWUP">پیگیری نامه</option>
                 <option value="VIDEO_CONFRENCE">ویدئو کنفرانس</option>
               </select>
             </div>
@@ -258,6 +279,11 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">واحد مربوطه</label>
               <input type="text" value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} placeholder="نام واحد..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]" />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">شماره نامه</label>
+              <input type="text" value={filterLetterNumber} onChange={(e) => setFilterLetterNumber(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#3498db] focus:border-[#3498db]" />
             </div>
 
             <div className="relative">
@@ -337,14 +363,15 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                       const isAppInstall = request.requestType === RequestType.APP_INSTALL;
                       const isServerRestart = request.requestType === RequestType.SERVER_RESTART;
                       const isVideoConference = request.requestType === RequestType.VIDEO_CONFRENCE;
+                      const isLetterFollowup = request.requestType === RequestType.LETTER_FOLLOWUP;
                       
                       return (
                         <React.Fragment key={request.id}>
                           <tr className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-blue-50' : 'bg-green-50'}`} onClick={() => toggleRow(request.id)}>
                             <td className="p-3 text-gray-800 font-semibold">#{request.id.split('-')[1]}</td>
                             <td className="p-3">
-                              <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : isTape ? 'bg-orange-100 text-orange-800' : isUSBPort ? 'bg-teal-100 text-teal-800' : isAppInstall ? 'bg-purple-100 text-purple-800' : isServerRestart ? 'bg-red-100 text-red-800' : isVideoConference ? 'bg-rose-100 text-rose-800' : 'bg-green-100 text-green-800'}`}>
-                                {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : 'Backup'}
+                              <span className={`px-2 py-1 text-xs font-semibold rounded ${isFileTransfer ? 'bg-blue-100 text-blue-800' : isVDI ? 'bg-purple-100 text-purple-800' : isTape ? 'bg-orange-100 text-orange-800' : isUSBPort ? 'bg-teal-100 text-teal-800' : isAppInstall ? 'bg-purple-100 text-purple-800' : isServerRestart ? 'bg-red-100 text-red-800' : isVideoConference ? 'bg-rose-100 text-rose-800' : isLetterFollowup ? 'bg-sky-100 text-sky-800' : 'bg-green-100 text-green-800'}`}>
+                                {isFileTransfer ? 'فایل' : isVDI ? 'VDI' : isTape ? 'Tape' : isUSBPort ? 'USB Port' : isAppInstall ? 'نصب برنامه' : isServerRestart ? 'ریستارت سرور' : isVideoConference ? 'ویدئو کنفرانس' : isLetterFollowup ? 'پیگیری نامه' : 'Backup'}
                               </span>
                             </td>
                             <td className="p-3 text-gray-700">{request.requesterName}</td>
@@ -396,6 +423,60 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                               <div><strong className="text-gray-600">آدرس IP مقصد:</strong> {file.destinationIP}</div>
                                               <div><strong className="text-gray-600">مسیر فایل مقصد:</strong> {file.destinationFilePath}</div>
                                             </div>
+                                            
+                                            {/* بخش دانلود فایل آپلود شده - همیشه قابل مشاهده */}
+                                            {file.uploadedFile && (
+                                              <div className="mb-3 bg-green-50 border border-green-200 rounded-lg p-3">
+                                                <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
+                                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                  </svg>
+                                                  <span>فایل آپلود شده</span>
+                                                </div>
+                                                <div className="text-sm text-green-700 mb-2">
+                                                  <div>نام فایل: {file.uploadedFile.originalFilename}</div>
+                                                  <div>حجم: {(file.uploadedFile.fileSize / (1024 * 1024)).toFixed(2)} مگابایت</div>
+                                                  {!file.uploadedFile.isDownloaded && (
+                                                    <div>تاریخ انقضا: {new Date(file.uploadedFile.expiresAt).toLocaleDateString('fa-IR')}</div>
+                                                  )}
+                                                </div>
+                                                {file.uploadedFile.isDownloaded ? (
+                                                  <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                    <span>دانلود شده</span>
+                                                  </div>
+                                                ) : isRequester(request) ? (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleDownloadFile(request.id, file.id, file.uploadedFile!.originalFilename);
+                                                    }}
+                                                    disabled={downloadingFileId === file.id}
+                                                    className="inline-flex items-center gap-2 px-4 py-2 bg-[#3498db] text-white rounded-md hover:bg-[#2980b9] disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                                                  >
+                                                    {downloadingFileId === file.id ? (
+                                                      <>
+                                                        <div className="spinner w-4 h-4"></div>
+                                                        <span>در حال دانلود...</span>
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                        </svg>
+                                                        <span>دانلود فایل</span>
+                                                      </>
+                                                    )}
+                                                  </button>
+                                                ) : (
+                                                  <div className="text-sm text-gray-500">
+                                                    فقط درخواست‌دهنده می‌تواند فایل را دانلود کند
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
                                             
                                             {!isFileExpanded && (
                                               <button
@@ -570,10 +651,37 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, requests: 
                                       })}
                                     </div>
                                   )}
+
+                                  {isLetterFollowup && request.letterFollowups && (
+                                    <div className="space-y-3">
+                                      {request.letterFollowups.map((lf, lfIndex) => (
+                                        <div key={lf.id} className="p-3 bg-sky-50 rounded-md border border-sky-100">
+                                          <div className="font-bold text-gray-700 mb-2">پیگیری نامه {lfIndex + 1}</div>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                            <div><strong className="text-gray-500">شماره نامه:</strong> {lf.letterNumber}</div>
+                                            <div><strong className="text-gray-500">موضوع نامه:</strong> {lf.letterSubject ? LETTER_FOLLOWUP_SUBJECT_LABELS[lf.letterSubject as LetterFollowupSubject] : '—'}</div>
+                                            <div className="md:col-span-2"><strong className="text-gray-500">توضیحات:</strong> {lf.description || '—'}</div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                   
                                   {request.selectedServerName && (
                                     <div className="p-3 bg-teal-50 rounded-md border border-teal-200 text-sm">
-                                      <strong className="text-gray-600">نام سامانه:</strong> {request.selectedServerName}
+                                      <div className="font-bold text-teal-800 mb-2">🖥️ اطلاعات سامانه</div>
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        <div><strong className="text-gray-600">نام سامانه:</strong> {request.selectedServerName}</div>
+                                        {(request as any).selectedServerContName && (
+                                          <div><strong className="text-gray-600">پیمانکار:</strong> {(request as any).selectedServerContName}</div>
+                                        )}
+                                        {(request as any).selectedServerRepName && (
+                                          <div><strong className="text-gray-600">نماینده:</strong> {(request as any).selectedServerRepName}</div>
+                                        )}
+                                        {(request as any).selectedServerIP && (
+                                          <div><strong className="text-gray-600">IP سرور:</strong> <span className="font-mono">{(request as any).selectedServerIP}</span></div>
+                                        )}
+                                      </div>
                                     </div>
                                   )}
 

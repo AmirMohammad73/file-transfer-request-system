@@ -1,8 +1,114 @@
 import express, { Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { pool } from '../index';
 import { authenticateToken } from '../middleware/auth';
+import { getClientIp, ipsMatch } from '../utils/clientIp';
 
 const router = express.Router();
+
+const AUTO_APPROVAL_NAME = 'تایید خودکار';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ─── پیکربندی multer برای آپلود فایل ─────────────────────────────────────────
+const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const requestId = req.params.id;
+    const fileId = req.params.fileId;
+    const ext = path.extname(file.originalname);
+    const uniqueName = `${requestId}-${fileId}-${Date.now()}${ext}`;
+    cb(null, uniqueName);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 1024 * 1024 * 1024, // 1 گیگابایت
+  },
+  fileFilter: (_req, file, cb) => {
+    // تمام فایل‌ها مجاز هستند
+    cb(null, true);
+  },
+});
+
+const EXPIRY_HOURS = 96; // ۹۶ ساعت
+
+const VALID_LETTER_FOLLOWUP_SUBJECTS = [
+  'NEW_SERVER',
+  'CREATE_VDI',
+  'VDI_ACCESS',
+  'REMOVE_SERVER',
+  'REMOVE_VDI_ACCESS',
+  'CHANGE_RESOURCES',
+  'CREATE_TUNNEL',
+  // مقادیر قدیمی — برای درخواست‌های ثبت‌شده پیش از تغییر گزینه‌ها
+  'ADD_SERVER',
+  'ADD_VDI',
+  'REMOVE_VDI',
+  'INCREASE_RESOURCES',
+];
+
+function validateLetterFollowups(letterFollowups: unknown): string | null {
+  if (!letterFollowups || !Array.isArray(letterFollowups) || letterFollowups.length === 0) {
+    return 'حداقل یک ردیف پیگیری نامه الزامی است';
+  }
+  for (const item of letterFollowups) {
+    if (!item.letterNumber || !String(item.letterNumber).trim()) {
+      return 'شماره نامه الزامی است';
+    }
+    if (!item.letterSubject || !VALID_LETTER_FOLLOWUP_SUBJECTS.includes(String(item.letterSubject))) {
+      return 'موضوع نامه الزامی است';
+    }
+  }
+  return null;
+}
+
+function buildLetterFollowupAutoApprovals(): object[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      approverRole: 'GROUP_LEAD',
+      approverName: AUTO_APPROVAL_NAME,
+      status: 'APPROVED',
+      date: now,
+      isAutoApproved: true,
+    },
+    {
+      approverRole: 'DEPUTY',
+      approverName: AUTO_APPROVAL_NAME,
+      status: 'APPROVED',
+      date: now,
+      isAutoApproved: true,
+    },
+  ];
+}
+
+function getInitialApprovalState(requestType: string): { currentApprover: string; approvalHistory: object[] } {
+  if (requestType === 'LETTER_FOLLOWUP') {
+    return {
+      currentApprover: 'NETWORK_HEAD',
+      approvalHistory: buildLetterFollowupAutoApprovals(),
+    };
+  }
+  const hierarchy = getApprovalHierarchy(requestType);
+  return {
+    currentApprover: hierarchy[0],
+    approvalHistory: [],
+  };
+}
 
 // Helper function to determine approval hierarchy based on request type
 function getApprovalHierarchy(requestType: string): string[] {
@@ -40,7 +146,10 @@ function mapRowToRequest(row: any): any {
   const firstItem = Array.isArray(filesData) && filesData.length > 0 ? filesData[0] : null;
   const selectedServerId = firstItem?.selectedServerId || null;
   const selectedServerName = firstItem?.selectedServerName || null;
-
+  // اطلاعات سامانه از ستون contractor در دیتابیس (از طریق join)
+  const selectedServerContName = row.selected_server_cont_name || null;
+  const selectedServerRepName = row.selected_server_rep_name || null;
+  const selectedServerIP = row.selected_server_ip || null;
   const obj: any = {
     id: row.id,
     requesterName: row.requester_name,
@@ -48,6 +157,9 @@ function mapRowToRequest(row: any): any {
     requestType: row.request_type,
     selectedServerId,
     selectedServerName,
+    selectedServerContName,
+    selectedServerRepName,
+    selectedServerIP,
     status: row.status,
     currentApprover: row.current_approver,
     approvalHistory: approvalHistoryData,
@@ -58,6 +170,9 @@ function mapRowToRequest(row: any): any {
     isRevised: row.is_revised || false,
     revisionCount: row.revision_count || 0,
     previousVersions: previousVersionsData,
+    notificationForUserId: row.notification_for_user_id || null,
+    originalRequestId: row.original_request_id || null,
+    isNotification: row.notification_for_user_id !== null,
   };
 
   if (row.request_type === 'FILE_TRANSFER') {
@@ -76,6 +191,8 @@ function mapRowToRequest(row: any): any {
     obj.serverRestarts = filesData;
   } else if (row.request_type === 'VIDEO_CONFRENCE') {
     obj.videoConferences = filesData;
+  } else if (row.request_type === 'LETTER_FOLLOWUP') {
+    obj.letterFollowups = filesData;
   }
 
   return obj;
@@ -139,7 +256,44 @@ const REQUEST_SELECT = `
   r.is_revised,
   r.revision_count,
   r.previous_versions,
-  u.group_ids as requester_group_ids
+  r.notification_for_user_id,
+  r.original_request_id,
+  u.group_ids as requester_group_ids,
+  -- اطلاعات سامانه از contractor (selectedServerId داخل JSONB است)
+  CASE
+    WHEN jsonb_array_length(r.files) > 0
+     AND (r.files->0->>'selectedServerId') IS NOT NULL
+    THEN (
+      SELECT c.cont_name
+      FROM contractor c
+      WHERE c.id = (r.files->0->>'selectedServerId')::integer
+      LIMIT 1
+    )
+    ELSE NULL
+  END AS selected_server_cont_name,
+  CASE
+    WHEN jsonb_array_length(r.files) > 0
+     AND (r.files->0->>'selectedServerId') IS NOT NULL
+    THEN (
+      SELECT c.rep_name1
+      FROM contractor c
+      WHERE c.id = (r.files->0->>'selectedServerId')::integer
+      LIMIT 1
+    )
+    ELSE NULL
+  END AS selected_server_rep_name,
+  CASE
+    WHEN jsonb_array_length(r.files) > 0
+     AND (r.files->0->>'selectedServerId') IS NOT NULL
+    THEN (
+      SELECT br.ip::text
+      FROM backup_resources br
+      JOIN contractor c ON c.id = br.contractor_id
+      WHERE c.id = (r.files->0->>'selectedServerId')::integer
+      LIMIT 1
+    )
+    ELSE NULL
+  END AS selected_server_ip
 `;
 
 // Get all requests (filtered based on user role) - NOT CANCELLED
@@ -263,9 +417,11 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
     `;
     params.push(userId);
 
+    // Condition 1: کاربر درخواست‌دهنده اصلی است
     conditions.push(`r.requester_id = $${++paramCount}`);
     params.push(userId);
 
+    // Condition 2: کاربر در لیست approval history است
     conditions.push(`
       EXISTS (
         SELECT 1 FROM jsonb_array_elements(r.approval_history) AS elem
@@ -273,6 +429,10 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
       )
     `);
     params.push(userName);
+
+    // Condition 3: کاربر باید از درخواست اطلاع‌رسانی شده مطلع شود
+    conditions.push(`r.notification_for_user_id = $${++paramCount}`);
+    params.push(userId);
 
     if (userRole !== 'REQUESTER' && userRole !== 'V_REQUESTER') {
       if (userRole === 'NETWORK_HEAD' || userRole === 'NETWORK_ADMIN' || userRole === 'NETWORK_USB_ADMIN' || userRole === 'VC_ACCEPTER') {
@@ -312,11 +472,37 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
   }
 });
 
+// Get single request by ID
+router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const requestId = req.params.id;
+
+    const result = await pool.query(
+      `SELECT ${REQUEST_SELECT}
+       FROM requests r
+       LEFT JOIN req_users u ON r.requester_id = u.id
+       WHERE r.id = $1`,
+      [requestId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'درخواست یافت نشد' });
+    }
+
+    const enriched = await enrichRequestsWithServerNames([mapRowToRequest(result.rows[0])]);
+    res.json(enriched[0]);
+  } catch (error: any) {
+    console.error('Get request error:', error);
+    res.status(500).json({ error: 'خطا در دریافت درخواست' });
+  }
+});
+
 // Create new request
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { type, selectedServerId, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences } = req.body;
+    const { type, selectedServerId, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences, letterFollowups, notifyUserIds } = req.body;
 
     if (!type) {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
@@ -385,6 +571,12 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'حداقل یک ردیف ویدئو کنفرانس الزامی است' });
       }
       dataToStore = videoConferences;
+    } else if (type === 'LETTER_FOLLOWUP') {
+      const letterFollowupError = validateLetterFollowups(letterFollowups);
+      if (letterFollowupError) {
+        return res.status(400).json({ error: letterFollowupError });
+      }
+      dataToStore = letterFollowups;
     }
 
     const userResult = await pool.query(
@@ -438,8 +630,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     const requestId = `req-${String(nextNumber).padStart(3, '0')}`;
 
-    const hierarchy = getApprovalHierarchy(type);
-    const firstApprover = hierarchy[0];
+    const { currentApprover, approvalHistory } = getInitialApprovalState(type);
 
     // اضافه کردن selectedServerId و selectedServerName به هر آیتم در JSONB
     const { data: enrichedData, selectedServerName } = await attachSelectedServerMetadata(
@@ -448,12 +639,23 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     );
     dataToStore = enrichedData;
 
+    // تعیین notification_for_user_id و original_request_id
+    let notificationForUserId = null;
+    let originalRequestId = null;
+    
+    // اگر notifyUserIds وجود دارد، اولین کاربر را به عنوان notification_for_user_id در نظر بگیر
+    if (notifyUserIds && Array.isArray(notifyUserIds) && notifyUserIds.length > 0) {
+      notificationForUserId = notifyUserIds[0];
+      originalRequestId = requestId;
+    }
+
     const insertResult = await pool.query(
       `INSERT INTO requests (
         id, requester_id, requester_name, department, request_type, files,
         status, current_approver, approval_history, rejection_reason,
-        is_revised, revision_count, previous_versions
-      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb)
+        is_revised, revision_count, previous_versions,
+        notification_for_user_id, original_request_id
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb, $14, $15)
       RETURNING *`,
       [
         requestId,
@@ -463,12 +665,14 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
         type,
         JSON.stringify(dataToStore),
         'PENDING',
-        firstApprover,
-        '[]',
+        currentApprover,
+        JSON.stringify(approvalHistory),
         null,
         false,
         0,
         '[]',
+        notificationForUserId,
+        originalRequestId
       ]
     );
 
@@ -503,6 +707,9 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       isRevised: row.is_revised || false,
       revisionCount: row.revision_count || 0,
       previousVersions: [],
+      notificationForUserId: row.notification_for_user_id,
+      originalRequestId: row.original_request_id,
+      isNotification: row.notification_for_user_id !== null,
     };
 
     if (row.request_type === 'FILE_TRANSFER') {
@@ -521,7 +728,12 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       request.serverRestarts = filesData;
     } else if (row.request_type === 'VIDEO_CONFRENCE') {
       request.videoConferences = filesData;
+    } else if (row.request_type === 'LETTER_FOLLOWUP') {
+      request.letterFollowups = filesData;
     }
+
+    // حذف کد ایجاد رکوردهای کپی برای اطلاع‌رسانی
+    // دیگر نیازی به ایجاد رکوردهای جداگانه برای اطلاع‌رسانی نیست
 
     res.status(201).json(request);
   } catch (error: any) {
@@ -618,6 +830,8 @@ router.put('/:id/cancel', authenticateToken, async (req: Request, res: Response)
       result.serverRestarts = filesData;
     } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
       result.videoConferences = filesData;
+    } else if (updatedRequest.request_type === 'LETTER_FOLLOWUP') {
+      result.letterFollowups = filesData;
     }
 
     res.json(result);
@@ -632,7 +846,7 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
   try {
     const userId = (req as any).userId;
     const requestId = req.params.id;
-    const { type, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences } = req.body;
+    const { type, files, backups, vdis, tapes, usbPorts, appInstalls, serverRestarts, videoConferences, letterFollowups } = req.body;
 
     if (!type) {
       return res.status(400).json({ error: 'نوع درخواست الزامی است' });
@@ -701,6 +915,12 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
         return res.status(400).json({ error: 'حداقل یک ردیف ویدئو کنفرانس الزامی است' });
       }
       dataToStore = videoConferences;
+    } else if (type === 'LETTER_FOLLOWUP') {
+      const letterFollowupError = validateLetterFollowups(letterFollowups);
+      if (letterFollowupError) {
+        return res.status(400).json({ error: letterFollowupError });
+      }
+      dataToStore = letterFollowups;
     }
 
     const requestResult = await pool.query(
@@ -747,26 +967,25 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
 
     previousVersions.push(markedHistory);
 
-    // شروع مجدد فرآیند تایید
-    const hierarchy = getApprovalHierarchy(type);
-    const firstApprover = hierarchy[0];
+    const { currentApprover, approvalHistory } = getInitialApprovalState(type);
 
     const updateResult = await pool.query(
       `UPDATE requests 
        SET files = $1::jsonb,
            status = 'PENDING',
            current_approver = $2,
-           approval_history = '[]'::jsonb,
+           approval_history = $3::jsonb,
            rejection_reason = NULL,
            is_revised = TRUE,
            revision_count = revision_count + 1,
-           previous_versions = $3::jsonb,
-           request_type = $4
-       WHERE id = $5
+           previous_versions = $4::jsonb,
+           request_type = $5
+       WHERE id = $6
        RETURNING *`,
       [
         JSON.stringify(dataToStore),
-        firstApprover,
+        currentApprover,
+        JSON.stringify(approvalHistory),
         JSON.stringify(previousVersions),
         type,
         requestId
@@ -816,6 +1035,8 @@ router.put('/:id/revise', authenticateToken, async (req: Request, res: Response)
       result.serverRestarts = filesData;
     } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
       result.videoConferences = filesData;
+    } else if (updatedRequest.request_type === 'LETTER_FOLLOWUP') {
+      result.letterFollowups = filesData;
     }
 
     res.json(result);
@@ -885,6 +1106,23 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
     const currentIndex = hierarchy.indexOf(user.role);
     const isLast = currentIndex === hierarchy.length - 1;
 
+    // بررسی آیا این انتقال فایل درون‌سامانه‌ای است (فایل آپلود شده + هر دو IP در یک سامانه)
+    let isSameSystemFileTransfer = false;
+    if (request.request_type === 'FILE_TRANSFER' && user.role === 'DEPUTY') {
+      let files: any[] = [];
+      if (typeof request.files === 'string') {
+        files = JSON.parse(request.files);
+      } else if (Array.isArray(request.files)) {
+        files = request.files;
+      }
+      const hasUploadedFile = files.some((f: any) => f.uploadedFile && !f.uploadedFile.isDownloaded);
+      if (hasUploadedFile) {
+        const srcIp = files[0]?.sourceIP;
+        const dstIp = files[0]?.destinationIP;
+        isSameSystemFileTransfer = await areIpsInSameSystem(srcIp, dstIp);
+      }
+    }
+
     const newApproval: any = {
       approverRole: user.role,
       approverName: user.name,
@@ -909,6 +1147,20 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
 
     approvalHistory.push(newApproval);
 
+    // اگر انتقال فایل درون‌سامانه‌ای باشد و مدیرکل/معاون تایید کرده باشد، مراحل شبکه خودکار تایید می‌شوند
+    let finalStatus = isLast ? 'COMPLETED' : 'PENDING';
+    let nextApprover = isLast ? null : hierarchy[currentIndex + 1];
+
+    if (isSameSystemFileTransfer) {
+      // تایید خودکار NETWORK_HEAD و NETWORK_ADMIN
+      const autoApprovals = buildSameSystemAutoApprovals();
+      for (const autoApproval of autoApprovals) {
+        approvalHistory.push(autoApproval);
+      }
+      finalStatus = 'COMPLETED';
+      nextApprover = null;
+    }
+
     const updateResult = await pool.query(
       `UPDATE requests 
        SET status = $1, 
@@ -917,8 +1169,8 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
        WHERE id = $4
        RETURNING *`,
       [
-        isLast ? 'COMPLETED' : 'PENDING',
-        isLast ? null : hierarchy[currentIndex + 1],
+        finalStatus,
+        nextApprover,
         JSON.stringify(approvalHistory),
         requestId,
       ]
@@ -967,6 +1219,8 @@ router.put('/:id/approve', authenticateToken, async (req: Request, res: Response
       result.serverRestarts = filesData;
     } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
       result.videoConferences = filesData;
+    } else if (updatedRequest.request_type === 'LETTER_FOLLOWUP') {
+      result.letterFollowups = filesData;
     }
 
     res.json(result);
@@ -1104,6 +1358,8 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
       result.serverRestarts = filesData;
     } else if (updatedRequest.request_type === 'VIDEO_CONFRENCE') {
       result.videoConferences = filesData;
+    } else if (updatedRequest.request_type === 'LETTER_FOLLOWUP') {
+      result.letterFollowups = filesData;
     }
 
     res.json(result);
@@ -1178,6 +1434,331 @@ router.put('/:id/files/:fileId/letter-number', authenticateToken, async (req: Re
   } catch (error: any) {
     console.error('Update letter number error:', error);
     res.status(500).json({ error: 'خطا در به‌روزرسانی شماره نامه' });
+  }
+});
+
+// ─── بررسی آیا هر دو IP در یک سامانه هستند ────────────────────────────────────
+async function areIpsInSameSystem(ip1: string, ip2: string): Promise<boolean> {
+  if (!ip1 || !ip2) return false;
+  const result = await pool.query(
+    `SELECT br1.contractor_id as id1, br2.contractor_id as id2
+     FROM backup_resources br1, backup_resources br2
+     WHERE host(br1.ip) = $1 AND host(br2.ip) = $2
+     LIMIT 1`,
+    [ip1, ip2]
+  );
+  if (result.rows.length === 0) return false;
+  const { id1, id2 } = result.rows[0];
+  return id1 !== null && id2 !== null && id1 === id2;
+}
+
+// ─── تایید خودکار مراحل شبکه برای انتقال درون‌سامانه‌ای ───────────────────────
+function buildSameSystemAutoApprovals(): object[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      approverRole: 'NETWORK_HEAD',
+      approverName: AUTO_APPROVAL_NAME,
+      status: 'APPROVED',
+      date: now,
+      isAutoApproved: true,
+    },
+    {
+      approverRole: 'NETWORK_ADMIN',
+      approverName: AUTO_APPROVAL_NAME,
+      status: 'COMPLETED',
+      date: now,
+      isAutoApproved: true,
+    },
+  ];
+}
+
+// ─── آپلود فایل برای درخواست انتقال فایل ──────────────────────────────────────
+router.post('/:id/upload/:fileId', authenticateToken, (req: Request, res: Response) => {
+  upload.single('file')(req, res, async (err) => {
+    try {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'حجم فایل نباید بیشتر از ۱ گیگابایت باشد' });
+        }
+        return res.status(400).json({ error: `خطا در آپلود فایل: ${err.message}` });
+      }
+      if (err) {
+        return res.status(500).json({ error: `خطا در آپلود فایل: ${err.message}` });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'فایلی ارسال نشده است' });
+      }
+
+      const userId = (req as any).userId;
+      const requestId = req.params.id;
+      const fileId = req.params.fileId;
+
+      // بررسی وجود درخواست
+      const requestResult = await pool.query('SELECT * FROM requests WHERE id = $1', [requestId]);
+      if (requestResult.rows.length === 0) {
+        // حذف فایل آپلود شده
+        fs.unlinkSync(req.file.path);
+        return res.status(404).json({ error: 'درخواست یافت نشد' });
+      }
+
+      const request = requestResult.rows[0];
+
+      // فقط درخواست‌دهنده می‌تواند فایل آپلود کند
+      if (request.requester_id !== userId) {
+        fs.unlinkSync(req.file.path);
+        return res.status(403).json({ error: 'فقط درخواست‌دهنده می‌تواند فایل آپلود کند' });
+      }
+
+      // بررسی نوع درخواست
+      if (request.request_type !== 'FILE_TRANSFER') {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'آپلود فایل فقط برای درخواست انتقال فایل مجاز است' });
+      }
+
+      // خواندن اطلاعات فایل‌ها از JSONB
+      let files: any[] = [];
+      if (typeof request.files === 'string') {
+        files = JSON.parse(request.files);
+      } else if (Array.isArray(request.files)) {
+        files = request.files;
+      }
+
+      const fileIndex = files.findIndex((f: any) => f.id === fileId);
+      if (fileIndex === -1) {
+        fs.unlinkSync(req.file.path);
+        return res.status(404).json({ error: 'فایل مورد نظر یافت نشد' });
+      }
+
+      const fileDetail = files[fileIndex];
+
+      // بررسی اینکه آیا هر دو IP در یک سامانه هستند
+      const sameSystem = await areIpsInSameSystem(fileDetail.sourceIP, fileDetail.destinationIP);
+      if (!sameSystem) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'آپلود فایل فقط برای انتقال بین سرورهای یک سامانه مجاز است' });
+      }
+
+      // محاسبه زمان انقضا (۹۶ ساعت)
+      const expiresAt = new Date(Date.now() + EXPIRY_HOURS * 60 * 60 * 1000);
+
+      // ذخیره اطلاعات در دیتابیس
+      const insertResult = await pool.query(
+        `INSERT INTO file_uploads (request_id, file_id, original_filename, stored_filename, file_size, uploader_id, destination_ip, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          requestId,
+          fileId,
+          req.file.originalname,
+          req.file.filename,
+          req.file.size,
+          userId,
+          fileDetail.destinationIP,
+          expiresAt.toISOString(),
+        ]
+      );
+
+      const uploadRecord = insertResult.rows[0];
+
+      // به‌روزرسانی اطلاعات فایل در JSONB درخواست
+      files[fileIndex].uploadedFile = {
+        uploadId: uploadRecord.id,
+        originalFilename: req.file.originalname,
+        storedFilename: req.file.filename,
+        fileSize: req.file.size,
+        uploadedAt: uploadRecord.uploaded_at,
+        expiresAt: expiresAt.toISOString(),
+        isDownloaded: false,
+      };
+
+      await pool.query(
+        'UPDATE requests SET files = $1::jsonb WHERE id = $2',
+        [JSON.stringify(files), requestId]
+      );
+
+      res.status(201).json({
+        message: 'فایل با موفقیت آپلود شد',
+        uploadedFile: files[fileIndex].uploadedFile,
+      });
+    } catch (error: any) {
+      console.error('Upload file error:', error);
+      // تلاش برای حذف فایل در صورت خطا
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      res.status(500).json({ error: 'خطا در آپلود فایل' });
+    }
+  });
+});
+
+// ─── دانلود فایل آپلود شده ───────────────────────────────────────────────────
+router.get('/:id/download/:fileId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const requestId = req.params.id;
+    const fileId = req.params.fileId;
+
+    // بررسی وجود درخواست
+    const requestResult = await pool.query('SELECT * FROM requests WHERE id = $1', [requestId]);
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'درخواست یافت نشد' });
+    }
+
+    const request = requestResult.rows[0];
+
+    // فقط درخواست‌دهنده می‌تواند فایل را دانلود کند
+    if (request.requester_id !== userId) {
+      return res.status(403).json({ error: 'فقط درخواست‌دهنده می‌تواند فایل را دانلود کند' });
+    }
+
+    // بررسی نوع درخواست
+    if (request.request_type !== 'FILE_TRANSFER') {
+      return res.status(400).json({ error: 'دانلود فایل فقط برای درخواست انتقال فایل مجاز است' });
+    }
+
+    // خواندن اطلاعات فایل‌ها
+    let files: any[] = [];
+    if (typeof request.files === 'string') {
+      files = JSON.parse(request.files);
+    } else if (Array.isArray(request.files)) {
+      files = request.files;
+    }
+
+    const fileDetail = files.find((f: any) => f.id === fileId);
+    if (!fileDetail) {
+      return res.status(404).json({ error: 'فایل مورد نظر یافت نشد' });
+    }
+
+    // بررسی وجود اطلاعات آپلود
+    if (!fileDetail.uploadedFile) {
+      return res.status(400).json({ error: 'فایلی برای این درخواست آپلود نشده است' });
+    }
+
+    // بررسی اینکه آیا قبلاً دانلود شده
+    if (fileDetail.uploadedFile.isDownloaded) {
+      return res.status(400).json({ error: 'این فایل قبلاً دانلود شده است' });
+    }
+
+    // بررسی انقضا
+    const expiresAt = new Date(fileDetail.uploadedFile.expiresAt);
+    if (new Date() > expiresAt) {
+      return res.status(400).json({ error: 'فایل منقضی شده و قابل دانلود نیست' });
+    }
+
+    // بررسی تایید مدیرکل/معاون (باید تایید شده باشد)
+    let approvalHistory: any[] = [];
+    if (request.approval_history) {
+      if (typeof request.approval_history === 'string') {
+        approvalHistory = JSON.parse(request.approval_history);
+      } else if (Array.isArray(request.approval_history)) {
+        approvalHistory = request.approval_history;
+      }
+    }
+
+    const deputyApproved = approvalHistory.some(
+      (a: any) => a.approverRole === 'DEPUTY' && (a.status === 'APPROVED' || a.status === 'COMPLETED')
+    );
+    if (!deputyApproved) {
+      return res.status(400).json({ error: 'فایل پس از تایید مدیرکل/معاون قابل دانلود است' });
+    }
+
+    // بررسی IP مقصد - کلاینت باید از سرور مقصد وارد شده باشد
+    const clientIp = getClientIp(req);
+    if (!ipsMatch(clientIp, fileDetail.destinationIP)) {
+      return res.status(403).json({ 
+        error: 'فقط از سرور مقصد می‌توانید فایل را دانلود کنید',
+        destinationIP: fileDetail.destinationIP,
+        clientIP: clientIp,
+      });
+    }
+
+    // مسیر فایل
+    const filePath = path.join(uploadsDir, fileDetail.uploadedFile.storedFilename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'فایل روی سرور یافت نشد' });
+    }
+
+    // علامت‌گذاری به عنوان دانلود شده
+    fileDetail.uploadedFile.isDownloaded = true;
+    await pool.query(
+      'UPDATE requests SET files = $1::jsonb WHERE id = $2',
+      [JSON.stringify(files), requestId]
+    );
+
+    await pool.query(
+      `UPDATE file_uploads SET is_downloaded = TRUE, downloaded_at = NOW() WHERE request_id = $1 AND file_id = $2`,
+      [requestId, fileId]
+    );
+
+    // ارسال فایل
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileDetail.uploadedFile.originalFilename)}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+
+    // حذف فایل پس از ارسال کامل
+    fileStream.on('end', () => {
+      setTimeout(() => {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log(`حذف فایل پس از دانلود: ${fileDetail.uploadedFile.storedFilename}`);
+        }
+      }, 5000); // 5 ثانیه تاخیر برای اطمینان از ارسال کامل
+    });
+
+    fileStream.on('error', (err) => {
+      console.error('خطا در ارسال فایل:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'خطا در ارسال فایل' });
+      }
+    });
+  } catch (error: any) {
+    console.error('Download file error:', error);
+    res.status(500).json({ error: 'خطا در دانلود فایل' });
+  }
+});
+
+// ─── بررسی وضعیت آپلود فایل ──────────────────────────────────────────────────
+router.get('/:id/upload-status/:fileId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const requestId = req.params.id;
+    const fileId = req.params.fileId;
+
+    const requestResult = await pool.query('SELECT * FROM requests WHERE id = $1', [requestId]);
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'درخواست یافت نشد' });
+    }
+
+    const request = requestResult.rows[0];
+
+    let files: any[] = [];
+    if (typeof request.files === 'string') {
+      files = JSON.parse(request.files);
+    } else if (Array.isArray(request.files)) {
+      files = request.files;
+    }
+
+    const fileDetail = files.find((f: any) => f.id === fileId);
+    if (!fileDetail) {
+      return res.status(404).json({ error: 'فایل مورد نظر یافت نشد' });
+    }
+
+    // بررسی آیا هر دو IP در یک سامانه هستند
+    const sameSystem = await areIpsInSameSystem(fileDetail.sourceIP, fileDetail.destinationIP);
+
+    res.json({
+      hasUpload: !!fileDetail.uploadedFile,
+      isSameSystem: sameSystem,
+      uploadedFile: fileDetail.uploadedFile || null,
+      canUpload: sameSystem && !fileDetail.uploadedFile,
+    });
+  } catch (error: any) {
+    console.error('Get upload status error:', error);
+    res.status(500).json({ error: 'خطا در بررسی وضعیت آپلود' });
   }
 });
 

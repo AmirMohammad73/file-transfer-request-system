@@ -29,6 +29,18 @@ export enum RequestType {
   /** مطابق نام enum در PostgreSQL */
   VIDEO_CONFRENCE = 'VIDEO_CONFRENCE',
   SERVER_RESTART = 'SERVER_RESTART',
+  /** پیگیری نامه ارسال‌شده از سامانه دیگر */
+  LETTER_FOLLOWUP = 'LETTER_FOLLOWUP',
+}
+
+export interface UploadedFileInfo {
+  uploadId: number;
+  originalFilename: string;
+  storedFilename: string;
+  fileSize: number;
+  uploadedAt: string;
+  expiresAt: string;
+  isDownloaded: boolean;
 }
 
 export interface FileDetail {
@@ -43,6 +55,7 @@ export interface FileDetail {
   recipient: string;
   letterNumber?: string;
   fileFields: string;
+  uploadedFile?: UploadedFileInfo;
 }
 
 export interface BackupDetail {
@@ -102,6 +115,23 @@ export interface ServerRestartDetail {
   description: string;
 }
 
+export enum LetterFollowupSubject {
+  NEW_SERVER = 'NEW_SERVER',
+  CREATE_VDI = 'CREATE_VDI',
+  VDI_ACCESS = 'VDI_ACCESS',
+  REMOVE_SERVER = 'REMOVE_SERVER',
+  REMOVE_VDI_ACCESS = 'REMOVE_VDI_ACCESS',
+  CHANGE_RESOURCES = 'CHANGE_RESOURCES',
+  CREATE_TUNNEL = 'CREATE_TUNNEL',
+}
+
+export interface LetterFollowupDetail {
+  id: string;
+  letterNumber: string;
+  letterSubject: LetterFollowupSubject | '';
+  description?: string;
+}
+
 export interface Approval {
   approverRole: Role;
   approverName: string;
@@ -112,6 +142,8 @@ export interface Approval {
   /** شماره اتاق؛ برای تأیید ویدئو کنفرانس */
   conferenceRoom?: string;
   isFromPreviousVersion?: boolean; // برای نشان دادن تاییدهای نسخه قبلی
+  /** تأیید خودکار (رئیس واحد / مدیرکل برای پیگیری نامه) */
+  isAutoApproved?: boolean;
 }
 
 export interface Request {
@@ -129,6 +161,7 @@ export interface Request {
   appInstalls?: AppInstallDetail[];
   videoConferences?: VideoConferenceDetail[];
   serverRestarts?: ServerRestartDetail[];
+  letterFollowups?: LetterFollowupDetail[];
   status: Status;
   approvalHistory: Approval[];
   currentApprover: Role | null;
@@ -172,7 +205,9 @@ export interface Contractor {
 export interface BackupServer {
   id?: number;
   ip: string;           // اجباری
-  vmname?: string;      // خودکار (بر اساس IP)
+  vmname?: string;      // نام VM (اجباری)
+  dns?: string;         // آدرس DNS (جدید)
+  relatedDepartments?: string; // ادارات مرتبط (جدید)
   url?: string;
   type?: string;        // نوع کاربری سرور (بکاپ، دیتابیس، sql و...)
   backupOperator?: string;
@@ -186,6 +221,8 @@ export interface BackupResource {
   ip: string;
   systemName?: string;
   vmname?: string;
+  dns?: string;         // آدرس DNS (جدید)
+  relatedDepartments?: string; // ادارات مرتبط (جدید)
   url?: string;
   type?: string;
   backupOperator?: string;

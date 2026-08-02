@@ -30,6 +30,8 @@ function buildContractors(rows: any[]): any[] {
         id: row.s_id,
         ip: row.s_ip,
         vmname: row.s_vmname,
+        dns: row.s_dns,
+        relatedDepartments: row.s_related_departments,
         url: row.s_url,
         type: row.s_type,
         backupOperator: row.s_backup_operator,
@@ -58,6 +60,8 @@ const CONTRACTOR_SELECT = `
   br.id            AS s_id,
   br.ip            AS s_ip,
   br.vmname        AS s_vmname,
+  br.dns           AS s_dns,
+  br.related_departments AS s_related_departments,
   br.url           AS s_url,
   br.type          AS s_type,
   br.backup_operator AS s_backup_operator,
@@ -84,9 +88,11 @@ async function buildAccessQuery(userId: number): Promise<{ whereClause: string; 
 
   // دسترسی گروهی: سامانه‌هایی که ثبت‌کننده‌شان با این کاربر همگروه است
   // یا خود کاربر ثبت‌کننده است
+  // یا سامانه عمومی است (req_user_ids خالی)
   return {
     whereClause: `(
-      c.req_user_ids @> $1::jsonb
+      c.req_user_ids = '[]'::jsonb
+      OR c.req_user_ids @> $1::jsonb
       OR EXISTS (
         SELECT 1 FROM req_users ru
         WHERE ru.id = ANY(
@@ -102,6 +108,16 @@ async function buildAccessQuery(userId: number): Promise<{ whereClause: string; 
 // ─── Helper: بررسی مجاز بودن ویرایش/حذف ─────────────────────────────────────
 // فقط ثبت‌کننده یا کاربر با group_ids={0} می‌تواند ویرایش/حذف کند
 async function canModify(userId: number, contractorId: number): Promise<boolean> {
+  // ابتدا بررسی کن که آیا سامانه عمومی است (req_user_ids خالی)
+  const publicCheck = await pool.query(
+    'SELECT req_user_ids FROM contractor WHERE id = $1',
+    [contractorId]
+  );
+  if (publicCheck.rows.length > 0) {
+    const reqUserIds = publicCheck.rows[0].req_user_ids || [];
+    if (reqUserIds.length === 0) return false; // سامانه عمومی — هیچکس نمی‌تواند تغییر دهد
+  }
+
   const userResult = await pool.query(
     'SELECT group_ids FROM req_users WHERE id = $1',
     [userId]
@@ -327,7 +343,7 @@ router.post('/contractors/:id/servers', authenticateToken, async (req: Request, 
   try {
     const userId = (req as any).userId;
     const contractorId = parseInt(req.params.id, 10);
-    const { ip, vmname, url, type, backupOperator, backupPeriod } = req.body;
+    const { ip, vmname, dns, url, type, backupOperator, backupPeriod } = req.body;
 
     if (!ip || !ip.trim()) {
       return res.status(400).json({ error: 'آدرس IP اجباری است' });
@@ -387,15 +403,15 @@ router.post('/contractors/:id/servers', authenticateToken, async (req: Request, 
     }
 
     const result = await pool.query(
-      `INSERT INTO backup_resources (ip, vmname, url, type, backup_operator, backup_period, contractor_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO backup_resources (ip, vmname, dns, related_departments, url, type, backup_operator, backup_period, contractor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [ip.trim(), resolvedVmname, url || null, type || null, backupOperator || null, backupPeriod || null, contractorId]
+      [ip.trim(), resolvedVmname, dns || null, relatedDepartments || null, url || null, type || null, backupOperator || null, backupPeriod || null, contractorId]
     );
 
     const row = result.rows[0];
     res.status(201).json({
-      id: row.id, ip: row.ip, vmname: row.vmname, url: row.url,
+      id: row.id, ip: row.ip, vmname: row.vmname, dns: row.dns, url: row.url,
       type: row.type, backupOperator: row.backup_operator,
       backupPeriod: row.backup_period, contractorId: row.contractor_id,
     });
@@ -410,7 +426,7 @@ router.put('/servers/:id', authenticateToken, async (req: Request, res: Response
   try {
     const userId = (req as any).userId;
     const serverId = parseInt(req.params.id, 10);
-    const { ip, vmname, url, type, backupOperator, backupPeriod } = req.body;
+    const { ip, vmname, dns, url, type, backupOperator, backupPeriod } = req.body;
 
     if (!ip || !ip.trim()) {
       return res.status(400).json({ error: 'آدرس IP اجباری است' });
@@ -463,16 +479,16 @@ router.put('/servers/:id', authenticateToken, async (req: Request, res: Response
 
     const result = await pool.query(
       `UPDATE backup_resources
-       SET ip = $1, vmname = $2, url = $3, type = $4,
-           backup_operator = $5, backup_period = $6
-       WHERE id = $7
+       SET ip = $1, vmname = $2, dns = $3, related_departments = $4, url = $5, type = $6,
+           backup_operator = $7, backup_period = $8
+       WHERE id = $9
        RETURNING *`,
-      [ip.trim(), resolvedVmname, url || null, type || null, backupOperator || null, backupPeriod || null, serverId]
+      [ip.trim(), resolvedVmname, dns || null, relatedDepartments || null, url || null, type || null, backupOperator || null, backupPeriod || null, serverId]
     );
 
     const row = result.rows[0];
     res.json({
-      id: row.id, ip: row.ip, vmname: row.vmname, url: row.url,
+      id: row.id, ip: row.ip, vmname: row.vmname, dns: row.dns, url: row.url,
       type: row.type, backupOperator: row.backup_operator,
       backupPeriod: row.backup_period, contractorId: row.contractor_id,
     });
@@ -543,6 +559,8 @@ router.get('/pdf-report', authenticateToken, async (req: Request, res: Response)
         br.id           AS s_id,
         br.ip           AS s_ip,
         br.vmname       AS s_vmname,
+        br.dns          AS s_dns,
+        br.related_departments AS s_related_departments,
         br.url          AS s_url,
         br.type         AS s_type,
         br.backup_operator AS s_backup_operator,
@@ -577,6 +595,8 @@ router.get('/pdf-report', authenticateToken, async (req: Request, res: Response)
           id: row.s_id,
           ip: row.s_ip,
           vmname: row.s_vmname,
+          dns: row.s_dns,
+          relatedDepartments: row.s_related_departments,
           url: row.s_url,
           type: row.s_type,
           backupOperator: row.s_backup_operator,
@@ -617,5 +637,89 @@ router.get('/pdf-report', authenticateToken, async (req: Request, res: Response)
   } catch (error: any) {
     console.error('PDF report error:', error);
     res.status(500).json({ error: 'خطا در تهیه گزارش' });
+  }
+});
+
+
+// ─── GET /system-by-ip/:ip ───────────────────────────────────────────────────
+router.get('/system-by-ip/:ip', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const ip = req.params.ip;
+    
+    if (!ip || !ip.trim()) {
+      return res.status(400).json({ error: 'آدرس IP الزامی است' });
+    }
+
+    const ipValue = ip.trim();
+    
+    // بررسی اولیه برای جلوگیری از خطای PostgreSQL در هنگام تایپ IP ناقص
+    // فقط اگر IP کامل بود کوئری اجرا شود
+    const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (!ipPattern.test(ipValue)) {
+      // اگر IP کامل نبود، برگردان که ثبت نشده است
+      return res.json({
+        ip: ipValue,
+        systemName: null,
+        contName: null,
+        vmname: null,
+        registered: false
+      });
+    }
+
+    // بررسی اینکه آیا هر بخش IP بین 0 تا 255 است
+    const parts = ipValue.split('.');
+    const isValid = parts.length === 4 && parts.every(part => {
+      const num = parseInt(part, 10);
+      return num >= 0 && num <= 255 && part === num.toString();
+    });
+
+    if (!isValid) {
+      return res.json({
+        ip: ipValue,
+        systemName: null,
+        contName: null,
+        vmname: null,
+        registered: false
+      });
+    }
+
+    const result = await pool.query(`
+      SELECT 
+        c.system_name AS systemName,
+        c.cont_name AS contName,
+        br.ip AS ip,
+        br.vmname AS vmname,
+        br.dns AS dns,
+        br.related_departments AS relatedDepartments
+      FROM backup_resources br
+      JOIN contractor c ON c.id = br.contractor_id
+      WHERE br.ip = $1::inet
+    `, [ipValue]);
+
+    if (result.rows.length === 0) {
+      return res.json({
+        ip: ip.trim(),
+        systemName: null,
+        contName: null,
+        vmname: null,
+        dns: null,
+        relatedDepartments: null,
+        registered: false
+      });
+    }
+
+    const row = result.rows[0];
+    res.json({
+      ip: row.ip,
+      systemName: row.systemname,
+      contName: row.contname,
+      vmname: row.vmname,
+      dns: row.dns,
+      relatedDepartments: row.relateddepartments,
+      registered: true
+    });
+  } catch (error: any) {
+    console.error('Get system by IP error:', error);
+    res.status(500).json({ error: 'خطا در دریافت اطلاعات سیستم' });
   }
 });

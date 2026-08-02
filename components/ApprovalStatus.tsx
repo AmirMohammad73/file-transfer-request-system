@@ -46,6 +46,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
         approvalNote: undefined,
         conferenceRoom: undefined,
         isFromPreviousVersion: false,
+        isAutoApproved: false,
       };
     }
 
@@ -59,6 +60,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
         approvalNote: approval.approvalNote,
         conferenceRoom: approval.conferenceRoom,
         isFromPreviousVersion: approval.isFromPreviousVersion || false,
+        isAutoApproved: approval.isAutoApproved || approval.approverName === 'تایید خودکار',
       };
     }
     
@@ -71,6 +73,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
         approvalNote: undefined,
         conferenceRoom: undefined,
         isFromPreviousVersion: false,
+        isAutoApproved: false,
       };
     }
 
@@ -82,6 +85,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
       approvalNote: undefined,
       conferenceRoom: undefined,
       isFromPreviousVersion: false,
+      isAutoApproved: false,
     };
   };
 
@@ -102,7 +106,7 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
       
       <div className={`grid ${approvalSteps.length === 2 ? 'grid-cols-2' : approvalSteps.length === 4 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-5'} gap-4`}>
         {approvalSteps.map(step => {
-          const { status, name, date, rejectionReason, approvalNote, conferenceRoom, isFromPreviousVersion } = getStatusForStep(step);
+          const { status, name, date, rejectionReason, approvalNote, conferenceRoom, isFromPreviousVersion, isAutoApproved } = getStatusForStep(step);
           
           let bgColor = 'bg-gray-200';
           let borderColor = 'border-gray-300';
@@ -115,6 +119,10 @@ const ApprovalStatus: React.FC<ApprovalStatusProps> = ({ request }) => {
             borderColor = 'border-gray-400';
             iconColor = 'text-gray-500';
             opacity = 'opacity-50';
+          } else if (status === 'checked' && isAutoApproved) {
+            bgColor = 'bg-[#3498db]';
+            borderColor = 'border-[#3498db]';
+            iconColor = 'text-white';
           } else if (status === 'checked') {
             bgColor = 'bg-[#2ecc71]';
             borderColor = 'border-[#2ecc71]';

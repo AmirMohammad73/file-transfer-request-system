@@ -18,7 +18,7 @@ const emptyContractorForm = {
 };
 
 const emptyServerForm = {
-  ip: '', url: '', type: '', backupOperator: '', backupPeriod: '',
+  ip: '', vmname: '', dns: '', relatedDepartments: '', url: '', type: '', backupOperator: '', backupPeriod: '',
 };
 
 const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, onClose }) => {
@@ -37,6 +37,54 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [expandedContractorId, setExpandedContractorId] = useState<number | null>(null);
   const [showAddServerForm, setShowAddServerForm] = useState<Set<number>>(new Set());
+
+  // ── فیلترهای جستجو ──────────────────────────────────────────────────────────
+  const [filterSystemName, setFilterSystemName] = useState('');
+  const [filterContractor, setFilterContractor] = useState('');
+  const [filterRep, setFilterRep] = useState('');
+  const [filterExpert, setFilterExpert] = useState('');
+  const [filterIP, setFilterIP] = useState('');
+  const [filterURL, setFilterURL] = useState('');
+  const [filterVmname, setFilterVmname] = useState('');
+  const [filterDNS, setFilterDNS] = useState('');
+  const [filterRelatedDepartments, setFilterRelatedDepartments] = useState('');
+
+  const clearFilters = () => {
+    setFilterSystemName(''); setFilterContractor(''); setFilterRep('');
+    setFilterExpert(''); setFilterIP(''); setFilterURL(''); setFilterVmname(''); setFilterDNS(''); setFilterRelatedDepartments('');
+  };
+  const hasFilters = filterSystemName || filterContractor || filterRep || filterExpert || filterIP || filterURL || filterVmname || filterDNS || filterRelatedDepartments;
+
+  const filteredContractors = contractors.filter(c => {
+    if (filterSystemName && !c.systemName?.toLowerCase().includes(filterSystemName.toLowerCase())) return false;
+    if (filterContractor && !c.contName?.toLowerCase().includes(filterContractor.toLowerCase())) return false;
+    if (filterRep) {
+      const repMatch = [c.repName1, c.repName2, c.repName3].some(r => r?.toLowerCase().includes(filterRep.toLowerCase()));
+      if (!repMatch) return false;
+    }
+    if (filterExpert && !c.registeredByName?.toLowerCase().includes(filterExpert.toLowerCase())) return false;
+    if (filterIP) {
+      const ipMatch = (c.servers || []).some(s => s.ip?.includes(filterIP));
+      if (!ipMatch) return false;
+    }
+    if (filterURL) {
+      const urlMatch = (c.servers || []).some(s => s.url?.toLowerCase().includes(filterURL.toLowerCase()));
+      if (!urlMatch) return false;
+    }
+    if (filterVmname) {
+      const vmnameMatch = (c.servers || []).some(s => s.vmname?.toLowerCase().includes(filterVmname.toLowerCase()));
+      if (!vmnameMatch) return false;
+    }
+    if (filterDNS) {
+      const dnsMatch = (c.servers || []).some(s => s.dns?.toLowerCase().includes(filterDNS.toLowerCase()));
+      if (!dnsMatch) return false;
+    }
+    if (filterRelatedDepartments) {
+      const departmentsMatch = (c.servers || []).some(s => s.relatedDepartments?.toLowerCase().includes(filterRelatedDepartments.toLowerCase()));
+      if (!departmentsMatch) return false;
+    }
+    return true;
+  });
 
   useEffect(() => { if (isOpen) fetchContractors(); }, [isOpen]);
 
@@ -103,9 +151,11 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
     setShowAddServerForm(p => new Set(p).add(cId));
     setServerForms(p => ({
       ...p,
-      [cId]: { ip: s.ip, url: s.url || '', type: s.type || '',
+      [cId]: {
+        ip: s.ip, vmname: s.vmname || '', url: s.url || '', type: s.type || '',
         backupOperator: s.backupOperator || '', backupPeriod: s.backupPeriod || '',
-        editingServerId: s.id },
+        editingServerId: s.id
+      },
     }));
   };
 
@@ -115,14 +165,14 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
     try {
       setSavingServer(cId);
       const eid = (form as any).editingServerId;
-      const payload = { ip: form.ip, url: form.url, type: form.type, backupOperator: form.backupOperator, backupPeriod: form.backupPeriod };
+      const payload = { ip: form.ip, vmname: form.vmname, url: form.url, type: form.type, backupOperator: form.backupOperator, backupPeriod: form.backupPeriod };
       if (eid) {
         const u = await backupResourcesAPI.updateServer(eid, payload);
-        setContractors(p => p.map(c => c.id === cId ? { ...c, servers: (c.servers||[]).map(s => s.id === eid ? u : s) } : c));
+        setContractors(p => p.map(c => c.id === cId ? { ...c, servers: (c.servers || []).map(s => s.id === eid ? u : s) } : c));
         showToast('سرور به‌روزرسانی شد', 'success');
       } else {
         const cr = await backupResourcesAPI.addServer(cId, payload);
-        setContractors(p => p.map(c => c.id === cId ? { ...c, servers: [...(c.servers||[]), cr] } : c));
+        setContractors(p => p.map(c => c.id === cId ? { ...c, servers: [...(c.servers || []), cr] } : c));
         showToast('سرور اضافه شد', 'success');
       }
       resetSForm(cId);
@@ -140,7 +190,7 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
         showToast('سامانه حذف شد', 'success');
       } else {
         await backupResourcesAPI.deleteServer(deleteDialog.id);
-        setContractors(p => p.map(c => ({ ...c, servers: (c.servers||[]).filter(s => s.id !== deleteDialog.id) })));
+        setContractors(p => p.map(c => ({ ...c, servers: (c.servers || []).filter(s => s.id !== deleteDialog.id) })));
         showToast('سرور حذف شد', 'success');
       }
     } catch (e: any) { showToast(e.message || 'خطا در حذف', 'error'); }
@@ -211,13 +261,15 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
             rows += `
               <td class="border px-2 py-1 font-mono text-xs">${server.ip || '—'}</td>
               <td class="border px-2 py-1 text-xs">${server.vmname || '—'}</td>
+              <td class="border px-2 py-1 text-xs">${server.dns || '—'}</td>
+              <td class="border px-2 py-1 text-xs">${server.relatedDepartments || '—'}</td>
               <td class="border px-2 py-1 text-xs">${server.type || '—'}</td>
               <td class="border px-2 py-1 text-xs">${server.backupOperator || '—'}</td>
               <td class="border px-2 py-1 text-xs">${server.backupPeriod || '—'}</td>
               <td class="border px-2 py-1 text-xs">${(server.users || []).join('، ') || '—'}</td>
             `;
           } else {
-            rows += `<td class="border px-2 py-1" colspan="6"></td>`;
+            rows += `<td class="border px-2 py-1" colspan="8"></td>`;
           }
 
           rows += `</tr>`;
@@ -259,6 +311,8 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
         <th>نام کارشناس</th>
         <th>IP سرور</th>
         <th>VMname</th>
+        <th>DNS</th>
+        <th>ادارات مرتبط</th>
         <th>نوع کاربری</th>
         <th>اوپراتور بکاپ</th>
         <th>دوره بکاپ</th>
@@ -305,6 +359,8 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
         'نام کارشناس',
         'IP سرور',
         'VMname',
+        'DNS',
+        'ادارات مرتبط',
         'نوع کاربری',
         'اوپراتور بکاپ',
         'دوره بکاپ',
@@ -336,7 +392,7 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
             contractor.repName3 || '',
             contractor.phone3 || '',
             contractor.registeredBy || '',
-            '', '', '', '', '', '',
+            '', '', '', '', '', '', '', '',
           ].map(escapeCell).join(','));
         } else {
           for (const server of servers) {
@@ -352,6 +408,8 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
               contractor.registeredBy ? (contractor.registeredByDept ? `${contractor.registeredBy} — ${contractor.registeredByDept}` : contractor.registeredBy) : '',
               server.ip || '',
               server.vmname || '',
+              server.dns || '',
+              server.relatedDepartments || '',
               server.type || '',
               server.backupOperator || '',
               server.backupPeriod || '',
@@ -502,6 +560,59 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
               <p className="text-gray-500 font-medium text-lg">هیچ شناسنامه‌ای ثبت نشده است</p>
             </div>
           ) : (
+            <>
+              {/* ── بخش فیلترها ── */}
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">نام سامانه</label>
+                    <input type="text" value={filterSystemName} onChange={e => setFilterSystemName(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">پیمانکار</label>
+                    <input type="text" value={filterContractor} onChange={e => setFilterContractor(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">نماینده</label>
+                    <input type="text" value={filterRep} onChange={e => setFilterRep(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">نام کارشناس</label>
+                    <input type="text" value={filterExpert} onChange={e => setFilterExpert(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">آدرس IP سرور</label>
+                    <input type="text" value={filterIP} onChange={e => setFilterIP(e.target.value)} placeholder="مثال: 192.168" className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">vmname</label>
+                    <input type="text" value={filterVmname} onChange={e => setFilterVmname(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">DNS</label>
+                    <input type="text" value={filterDNS} onChange={e => setFilterDNS(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">ادارات مرتبط</label>
+                    <input type="text" value={filterRelatedDepartments} onChange={e => setFilterRelatedDepartments(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">URL</label>
+                    <input type="text" value={filterURL} onChange={e => setFilterURL(e.target.value)} placeholder="جستجو..." className="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16a085] focus:border-[#16a085]" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 mt-3">
+                  {hasFilters && (
+                    <button onClick={clearFilters} className="px-3 py-1.5 bg-gray-500 text-white text-xs rounded-md hover:bg-gray-600 transition-colors cursor-pointer">
+                      پاک کردن فیلتر
+                    </button>
+                  )}
+                  <span className="text-xs text-gray-500">
+                    {hasFilters ? `نمایش ${filteredContractors.length} از ${contractors.length} سامانه` : `${contractors.length} سامانه`}
+                  </span>
+                </div>
+              </div>
+
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
@@ -514,7 +625,7 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                   </tr>
                 </thead>
                 <tbody>
-                  {contractors.map((contractor, index) => {
+                  {filteredContractors.map((contractor, index) => {
                     const isExpanded = expandedContractorId === contractor.id;
                     const serverCount = (contractor.servers || []).length;
                     const isAddServerFormVisible = showAddServerForm.has(contractor.id!);
@@ -523,7 +634,7 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                     return (
                       <React.Fragment key={contractor.id}>
                         <tr
-                          className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-teal-50' : 'bg-green-50'} ${editingContractorId === contractor.id ? 'ring-2 ring-[#16a085] ring-inset' : ''}`}
+                          className={`border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-blue-100' : 'bg-green-100'} ${editingContractorId === contractor.id ? 'ring-2 ring-[#16a085] ring-inset' : ''}`}
                           onClick={() => toggleContractor(contractor.id!)}
                         >
                           <td className="p-3 text-gray-800 font-semibold">{contractor.systemName}</td>
@@ -537,7 +648,7 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                               aria-expanded={isExpanded}
                               onClick={(e) => { e.stopPropagation(); toggleContractor(contractor.id!); }}
                             >
-                              {isExpanded ? 'کمتر ▼' : 'بیشتر ▶'}
+                              {isExpanded ? 'کمتر ' : 'بیشتر '}
                             </button>
                           </td>
                         </tr>
@@ -545,30 +656,50 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                           <tr>
                             <td colSpan={5} className="p-4 bg-gray-50">
                               <div className="space-y-4">
-                                <div className="flex justify-end gap-2 pb-3 border-b border-dashed border-gray-300">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleEditContractor(contractor)}
-                                    className="bg-[#3498db] text-white px-3 py-1.5 rounded text-xs font-semibold hover:bg-[#2980b9] cursor-pointer"
-                                  >
-                                    ویرایش سامانه
-                                  </button>
-                                  {isNetworkHead && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setDeleteDialog({ type: 'contractor', id: contractor.id!, label: contractor.systemName })}
-                                      className="bg-red-500 text-white px-3 py-1.5 rounded text-xs font-semibold hover:bg-red-600 cursor-pointer"
-                                    >
-                                      حذف سامانه
-                                    </button>
-                                  )}
+                                {/* ردیف بالایی: دکمه‌ها در چپ و نمایندگان در راست */}
+                                <div className="flex justify-between items-start pb-3 border-b border-dashed border-gray-300 flex-row-reverse">
+                                  {/* دکمه‌ها در سمت چپ (با معکوس کردن ترتیب) */}
+                                  <div className="flex gap-2">
+                                    {!(contractor.reqUserIds?.length === 0) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleEditContractor(contractor)}
+                                        className="bg-[#3498db] text-white px-3 py-1.5 rounded text-xs font-semibold hover:bg-[#2980b9] cursor-pointer"
+                                      >
+                                        ویرایش سامانه
+                                      </button>
+                                    )}
+                                    {isNetworkHead && !(contractor.reqUserIds?.length === 0) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setDeleteDialog({ type: 'contractor', id: contractor.id!, label: contractor.systemName })}
+                                        className="bg-red-500 text-white px-3 py-1.5 rounded text-xs font-semibold hover:bg-red-600 cursor-pointer"
+                                      >
+                                        حذف سامانه
+                                      </button>
+                                    )}
+                                    {contractor.reqUserIds?.length === 0 && (
+                                      <span className="text-xs text-gray-400 italic bg-gray-100 px-3 py-1.5 rounded">🔒 سامانه عمومی — غیرقابل تغییر</span>
+                                    )}
+                                  </div>
+
+                                  {/* اسامی سه نماینده در سمت راست */}
+                                  <div className="text-sm text-gray-600 flex flex-wrap gap-4">
+                                    {contractor.repName1 && (
+                                      <div>نماینده ۱: <strong>{contractor.repName1}</strong> — {contractor.phone1}</div>
+                                    )}
+                                    {contractor.repName2 && (
+                                      <div>نماینده ۲: <strong>{contractor.repName2}</strong> — {contractor.phone2}</div>
+                                    )}
+                                    {contractor.repName3 && (
+                                      <div>نماینده ۳: <strong>{contractor.repName3}</strong> — {contractor.phone3}</div>
+                                    )}
+                                  </div>
                                 </div>
 
+                                {/* سایر اطلاعات (کارشناس) */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600">
                                   {contractor.registeredByName && <div>کارشناس: <strong>{contractor.registeredByName}</strong>{contractor.registeredByDept ? ` — ${contractor.registeredByDept}` : ''}</div>}
-                                  {contractor.repName1 && <div>نماینده ۱: <strong>{contractor.repName1}</strong> — {contractor.phone1}</div>}
-                                  {contractor.repName2 && <div>نماینده ۲: <strong>{contractor.repName2}</strong> — {contractor.phone2}</div>}
-                                  {contractor.repName3 && <div>نماینده ۳: <strong>{contractor.repName3}</strong> — {contractor.phone3}</div>}
                                 </div>
 
                                 {/* لیست سرورها */}
@@ -580,7 +711,7 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                                       <table className="w-full border-collapse text-sm">
                                         <thead>
                                           <tr className="bg-gray-100 border-b-2 border-gray-300">
-                                            {['IP', 'URL', 'نوع کاربری', 'اوپراتور', 'دوره بکاپ', 'عملیات'].map(h => (
+                                            {['IP', 'vmname', 'DNS', 'ادارات مرتبط', 'URL', 'نوع کاربری', 'اوپراتور', 'دوره بکاپ', 'عملیات'].map(h => (
                                               <th key={h} className="p-2 text-right font-bold text-gray-700 whitespace-nowrap">{h}</th>
                                             ))}
                                           </tr>
@@ -589,6 +720,9 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                                           {(contractor.servers || []).map((s, i) => (
                                             <tr key={s.id} className={`border-b border-gray-200 hover:bg-gray-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                               <td className="p-2 font-mono text-gray-800">{s.ip}</td>
+                                              <td className="p-2 font-mono text-gray-800">{s.vmname || '—'}</td>
+                                              <td className="p-2 font-mono text-gray-800">{s.dns || '—'}</td>
+                                              <td className="p-2 font-mono text-gray-800">{s.relatedDepartments || '—'}</td>
                                               <td className="p-2 text-gray-700 max-w-[120px] truncate">
                                                 {s.url ? <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-[#16a085] hover:underline" title={s.url}>{s.url}</a> : '—'}
                                               </td>
@@ -597,9 +731,14 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                                               <td className="p-2 text-gray-700">{s.backupPeriod || '—'}</td>
                                               <td className="p-2 text-center">
                                                 <div className="flex items-center justify-center gap-1">
-                                                  <button type="button" onClick={() => handleEditServer(contractor.id!, s)} className="bg-[#3498db] text-white px-2 py-1 rounded text-xs font-semibold hover:bg-[#2980b9] cursor-pointer">ویرایش</button>
-                                                  {isNetworkHead && (
+                                                  {!(contractor.reqUserIds?.length === 0) && (
+                                                    <button type="button" onClick={() => handleEditServer(contractor.id!, s)} className="bg-[#3498db] text-white px-2 py-1 rounded text-xs font-semibold hover:bg-[#2980b9] cursor-pointer">ویرایش</button>
+                                                  )}
+                                                  {isNetworkHead && !(contractor.reqUserIds?.length === 0) && (
                                                     <button type="button" onClick={() => setDeleteDialog({ type: 'server', id: s.id!, label: s.ip })} className="bg-red-500 text-white px-2 py-1 rounded text-xs font-semibold hover:bg-red-600 cursor-pointer">حذف</button>
+                                                  )}
+                                                  {contractor.reqUserIds?.length === 0 && (
+                                                    <span className="text-xs text-gray-400">🔒</span>
                                                   )}
                                                 </div>
                                               </td>
@@ -610,6 +749,8 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                                     </div>
                                   )}
 
+                                  {/* دکمه افزودن سرور — فقط برای سامانه‌های غیرعمومی */}
+                                  {!(contractor.reqUserIds?.length === 0) && (
                                   <button
                                     type="button"
                                     onClick={() => toggleAddServerForm(contractor.id!)}
@@ -618,18 +759,22 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                                     <span className="text-base leading-none">{isAddServerFormVisible ? '▲' : '+'}</span>
                                     <span>{isAddServerFormVisible ? 'بستن فرم افزودن سرور' : 'افزودن سرور جدید'}</span>
                                   </button>
+                                  )}
                                 </div>
 
-                                {/* فرم افزودن/ویرایش سرور */}
-                                {isAddServerFormVisible && (
+                                {/* فرم افزودن/ویرایش سرور — فقط برای سامانه‌های غیرعمومی */}
+                                {isAddServerFormVisible && !(contractor.reqUserIds?.length === 0) && (
                                   <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
                                     <h4 className="text-sm font-bold text-orange-800 mb-3">
                                       {isEditingServer ? '✏️ ویرایش سرور' : '➕ افزودن سرور'}
                                     </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                                       {sInp('ip', contractor.id!, '192.168.1.100', 'آدرس IP', true)}
+                                      {sInp('vmname', contractor.id!, 'vmname.example', 'vmname', true)}
+                                      {sInp('dns', contractor.id!, 'PST/XYZ', 'DNS')}
+                                      {sInp('relatedDepartments', contractor.id!, 'فناوری، جغرافیایی، شبکه', 'ادارات مرتبط')}
                                       {sInp('url', contractor.id!, 'https://...', 'URL')}
-                                      {sInp('type', contractor.id!, 'بکاپ، دیتابیس، SQL، وب...', 'نوع کاربری سرور')}
+                                      {sInp('type', contractor.id!, 'Backup, DB VPS، VDI، Web...', 'نوع کاربری سرور')}
                                       {sInp('backupOperator', contractor.id!, 'نام اوپراتور', 'اوپراتور بکاپ')}
                                       {sInp('backupPeriod', contractor.id!, 'روزانه، هفتگی...', 'دوره‌های بکاپ')}
                                     </div>
@@ -651,14 +796,19 @@ const SystemManagementModal: React.FC<SystemManagementModalProps> = ({ isOpen, o
                                 )}
                               </div>
                             </td>
-                          </tr>
-                        )}
+                          </tr>)}
                       </React.Fragment>
                     );
                   })}
                 </tbody>
               </table>
             </div>
+            {filteredContractors.length === 0 && hasFilters && (
+              <div className="text-center py-8 text-gray-500 text-sm">
+                هیچ سامانه‌ای با فیلترهای اعمال شده یافت نشد.
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>
