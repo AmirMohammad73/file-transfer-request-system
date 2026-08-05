@@ -25,6 +25,10 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
+    // اصلاح انکودینگ نام فایل: multer/busboy به‌صورت پیش‌فرض هدر نام فایل را
+    // با latin1 می‌خواند درحالی‌که مرورگر آن را با UTF-8 ارسال می‌کند؛
+    // همین باعث به‌هم‌ریختن نام فایل‌های غیرانگلیسی (مثلاً فارسی) می‌شود.
+    file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
     const requestId = req.params.id;
     const fileId = req.params.fileId;
     const ext = path.extname(file.originalname);
@@ -469,6 +473,17 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
   } catch (error: any) {
     console.error('Get history error:', error);
     res.status(500).json({ error: 'خطا در دریافت تاریخچه' });
+  }
+});
+
+// ─── دریافت آدرس IP فعلی کاربر (برای پرکردن خودکار مبدا در انتقال داخلی) ────
+router.get('/my-ip', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const clientIp = getClientIp(req);
+    res.json({ ip: clientIp });
+  } catch (error: any) {
+    console.error('Get my-ip error:', error);
+    res.status(500).json({ error: 'خطا در دریافت آدرس IP' });
   }
 });
 
@@ -1596,6 +1611,8 @@ router.post('/:id/upload/:fileId', authenticateToken, (req: Request, res: Respon
 // ─── دانلود فایل آپلود شده ───────────────────────────────────────────────────
 router.get('/:id/download/:fileId', authenticateToken, async (req: Request, res: Response) => {
   try {
+    console.log('درخواست دانلود دریافت شد:', req.params.id, req.params.fileId);
+    
     const userId = (req as any).userId;
     const requestId = req.params.id;
     const fileId = req.params.fileId;
@@ -1603,18 +1620,22 @@ router.get('/:id/download/:fileId', authenticateToken, async (req: Request, res:
     // بررسی وجود درخواست
     const requestResult = await pool.query('SELECT * FROM requests WHERE id = $1', [requestId]);
     if (requestResult.rows.length === 0) {
+      console.log('درخواست یافت نشد:', requestId);
       return res.status(404).json({ error: 'درخواست یافت نشد' });
     }
 
     const request = requestResult.rows[0];
+    console.log('درخواست یافت شد:', request.id, 'requester_id:', request.requester_id, 'userId:', userId);
 
     // فقط درخواست‌دهنده می‌تواند فایل را دانلود کند
     if (request.requester_id !== userId) {
+      console.log('دسترسی غیرمجاز: کاربر درخواست‌دهنده نیست');
       return res.status(403).json({ error: 'فقط درخواست‌دهنده می‌تواند فایل را دانلود کند' });
     }
 
     // بررسی نوع درخواست
     if (request.request_type !== 'FILE_TRANSFER') {
+      console.log('نوع درخواست اشتباه:', request.request_type);
       return res.status(400).json({ error: 'دانلود فایل فقط برای درخواست انتقال فایل مجاز است' });
     }
 
@@ -1628,22 +1649,32 @@ router.get('/:id/download/:fileId', authenticateToken, async (req: Request, res:
 
     const fileDetail = files.find((f: any) => f.id === fileId);
     if (!fileDetail) {
+      console.log('فایل در درخواست یافت نشد:', fileId);
       return res.status(404).json({ error: 'فایل مورد نظر یافت نشد' });
     }
 
+    console.log('فایل یافت شد:', fileDetail);
+
     // بررسی وجود اطلاعات آپلود
     if (!fileDetail.uploadedFile) {
+      console.log('اطلاعات آپلود وجود ندارد');
       return res.status(400).json({ error: 'فایلی برای این درخواست آپلود نشده است' });
     }
 
+    console.log('اطلاعات آپلود:', fileDetail.uploadedFile);
+
     // بررسی اینکه آیا قبلاً دانلود شده
     if (fileDetail.uploadedFile.isDownloaded) {
+      console.log('فایل قبلاً دانلود شده است');
       return res.status(400).json({ error: 'این فایل قبلاً دانلود شده است' });
     }
 
     // بررسی انقضا
     const expiresAt = new Date(fileDetail.uploadedFile.expiresAt);
-    if (new Date() > expiresAt) {
+    const now = new Date();
+    console.log('تاریخ انقضا:', expiresAt, 'زمان فعلی:', now);
+    if (now > expiresAt) {
+      console.log('فایل منقضی شده است');
       return res.status(400).json({ error: 'فایل منقضی شده و قابل دانلود نیست' });
     }
 
@@ -1660,13 +1691,20 @@ router.get('/:id/download/:fileId', authenticateToken, async (req: Request, res:
     const deputyApproved = approvalHistory.some(
       (a: any) => a.approverRole === 'DEPUTY' && (a.status === 'APPROVED' || a.status === 'COMPLETED')
     );
+    console.log('آیا DEPUTY تایید کرده؟', deputyApproved, 'تاریخچه:', approvalHistory);
     if (!deputyApproved) {
+      console.log('DEPUTY تایید نکرده است');
       return res.status(400).json({ error: 'فایل پس از تایید مدیرکل/معاون قابل دانلود است' });
     }
 
     // بررسی IP مقصد - کلاینت باید از سرور مقصد وارد شده باشد
     const clientIp = getClientIp(req);
-    if (!ipsMatch(clientIp, fileDetail.destinationIP)) {
+    console.log('IP کلاینت:', clientIp, 'IP مقصد:', fileDetail.destinationIP);
+    const ipMatchResult = ipsMatch(clientIp, fileDetail.destinationIP);
+    console.log('آیا IP ها تطابق دارند؟', ipMatchResult);
+    
+    if (!ipMatchResult) {
+      console.log('IP تطابق ندارد');
       return res.status(403).json({ 
         error: 'فقط از سرور مقصد می‌توانید فایل را دانلود کنید',
         destinationIP: fileDetail.destinationIP,
@@ -1676,12 +1714,15 @@ router.get('/:id/download/:fileId', authenticateToken, async (req: Request, res:
 
     // مسیر فایل
     const filePath = path.join(uploadsDir, fileDetail.uploadedFile.storedFilename);
+    console.log('مسیر فایل:', filePath, 'وجود دارد؟', fs.existsSync(filePath));
     if (!fs.existsSync(filePath)) {
+      console.log('فایل روی دیسک یافت نشد');
       return res.status(404).json({ error: 'فایل روی سرور یافت نشد' });
     }
 
-    // علامت‌گذاری به عنوان دانلود شده
+    // علامت‌گذاری به عنوان دانلود شده قبل از ارسال فایل
     fileDetail.uploadedFile.isDownloaded = true;
+    console.log('در حال بروزرسانی وضعیت دانلود در دیتابیس...');
     await pool.query(
       'UPDATE requests SET files = $1::jsonb WHERE id = $2',
       [JSON.stringify(files), requestId]
@@ -1692,27 +1733,36 @@ router.get('/:id/download/:fileId', authenticateToken, async (req: Request, res:
       [requestId, fileId]
     );
 
-    // ارسال فایل
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileDetail.uploadedFile.originalFilename)}"`);
-    res.setHeader('Content-Type', 'application/octet-stream');
+    // ارسال فایل با هدرهای مناسب
+    const originalName = fileDetail.uploadedFile.originalFilename || 'file';
+    console.log('نام اصلی فایل:', originalName);
     
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
-
-    // حذف فایل پس از ارسال کامل
-    fileStream.on('end', () => {
-      setTimeout(() => {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          console.log(`حذف فایل پس از دانلود: ${fileDetail.uploadedFile.storedFilename}`);
+    // تنظیم هدر Content-Disposition برای پشتیبانی از نام‌های فارسی
+    const contentDisposition = `attachment; filename="${encodeURIComponent(originalName)}"`;
+    console.log('Content-Disposition:', contentDisposition);
+    
+    // تنظیم هدرها
+    res.setHeader('Content-Disposition', contentDisposition);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    
+    console.log('در حال ارسال فایل...');
+    // ارسال فایل
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        console.error('خطا در ارسال فایل:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'خطا در دانلود فایل' });
         }
-      }, 5000); // 5 ثانیه تاخیر برای اطمینان از ارسال کامل
-    });
-
-    fileStream.on('error', (err) => {
-      console.error('خطا در ارسال فایل:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'خطا در ارسال فایل' });
+      } else {
+        console.log('فایل با موفقیت ارسال شد');
+        // حذف فایل پس از ارسال کامل
+        setTimeout(() => {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`حذف فایل پس از دانلود: ${fileDetail.uploadedFile.storedFilename}`);
+          }
+        }, 5000);
       }
     });
   } catch (error: any) {

@@ -45,17 +45,23 @@ export interface UploadedFileInfo {
 
 export interface FileDetail {
   id: string;
+  /** برای انتقال داخلی به‌صورت خودکار از نام فایل بارگذاری‌شده پر می‌شود */
   fileName: string;
   fileContent: string;
   sourceIP: string;
-  sourceFilePath: string;
+  /** فقط برای انتقال عادی (غیرداخلی) الزامی است */
+  sourceFilePath?: string;
   destinationIP: string;
-  destinationFilePath: string;
-  fileFormat: string;
+  /** فقط برای انتقال عادی (غیرداخلی) الزامی است */
+  destinationFilePath?: string;
+  /** برای انتقال داخلی به‌صورت خودکار از فایل بارگذاری‌شده استخراج می‌شود */
+  fileFormat?: string;
   recipient: string;
   letterNumber?: string;
   fileFields: string;
   uploadedFile?: UploadedFileInfo;
+  /** آیا این رکورد انتقال داخلی (بین سرورهای یک سامانه) است */
+  isInternalTransfer?: boolean;
 }
 
 export interface BackupDetail {

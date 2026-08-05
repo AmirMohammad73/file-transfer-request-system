@@ -182,13 +182,22 @@ export const requestsAPI = {
       throw new Error(error.error || 'خطا در دانلود فایل');
     }
 
-    // دریافت نام فایل از هدر
+    // دریافت نام فایل از هدر (اولویت با نسخه‌ی UTF-8، در غیر این صورت نسخه‌ی ساده)
     const contentDisposition = response.headers.get('Content-Disposition');
     let filename = 'download';
     if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i);
-      if (filenameMatch) {
-        filename = decodeURIComponent(filenameMatch[1].replace(/"/g, ''));
+      const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;\n]+)/i);
+      if (utf8Match) {
+        try {
+          filename = decodeURIComponent(utf8Match[1].trim());
+        } catch {
+          filename = utf8Match[1].trim();
+        }
+      } else {
+        const asciiMatch = contentDisposition.match(/filename="?([^";\n]+)"?/i);
+        if (asciiMatch) {
+          filename = asciiMatch[1].trim();
+        }
       }
     }
 
@@ -207,6 +216,11 @@ export const requestsAPI = {
   // ── بررسی وضعیت آپلود ──
   getUploadStatus: async (requestId: string, fileId: string): Promise<{ hasUpload: boolean; isSameSystem: boolean; uploadedFile: UploadedFileInfo | null; canUpload: boolean }> => {
     return apiCall(`/requests/${requestId}/upload-status/${fileId}`);
+  },
+
+  // ── دریافت آدرس IP فعلی کاربر (برای انتقال داخلی) ──
+  getMyIp: async (): Promise<{ ip: string }> => {
+    return apiCall<{ ip: string }>('/requests/my-ip');
   },
 };
 

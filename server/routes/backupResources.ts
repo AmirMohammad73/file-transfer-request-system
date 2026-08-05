@@ -343,7 +343,7 @@ router.post('/contractors/:id/servers', authenticateToken, async (req: Request, 
   try {
     const userId = (req as any).userId;
     const contractorId = parseInt(req.params.id, 10);
-    const { ip, vmname, dns, url, type, backupOperator, backupPeriod } = req.body;
+    const { ip, vmname, dns, url, type, backupOperator, backupPeriod, relatedDepartments } = req.body;
 
     if (!ip || !ip.trim()) {
       return res.status(400).json({ error: 'آدرس IP اجباری است' });
@@ -414,6 +414,7 @@ router.post('/contractors/:id/servers', authenticateToken, async (req: Request, 
       id: row.id, ip: row.ip, vmname: row.vmname, dns: row.dns, url: row.url,
       type: row.type, backupOperator: row.backup_operator,
       backupPeriod: row.backup_period, contractorId: row.contractor_id,
+      relatedDepartments: row.related_departments,
     });
   } catch (error: any) {
     console.error('Add server error:', error);
@@ -426,7 +427,7 @@ router.put('/servers/:id', authenticateToken, async (req: Request, res: Response
   try {
     const userId = (req as any).userId;
     const serverId = parseInt(req.params.id, 10);
-    const { ip, vmname, dns, url, type, backupOperator, backupPeriod } = req.body;
+    const { ip, vmname, dns, url, type, backupOperator, backupPeriod, relatedDepartments } = req.body;
 
     if (!ip || !ip.trim()) {
       return res.status(400).json({ error: 'آدرس IP اجباری است' });
@@ -491,6 +492,7 @@ router.put('/servers/:id', authenticateToken, async (req: Request, res: Response
       id: row.id, ip: row.ip, vmname: row.vmname, dns: row.dns, url: row.url,
       type: row.type, backupOperator: row.backup_operator,
       backupPeriod: row.backup_period, contractorId: row.contractor_id,
+      relatedDepartments: row.related_departments,
     });
   } catch (error: any) {
     console.error('Update server error:', error);

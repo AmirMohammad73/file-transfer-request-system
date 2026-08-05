@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../index';
 import { authenticateToken } from '../middleware/auth';
+import { getClientIp } from '../utils/clientIp';
 
 const router = express.Router();
 

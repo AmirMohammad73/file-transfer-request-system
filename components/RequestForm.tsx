@@ -95,7 +95,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     // State for File Transfer form
     const [files, setFiles] = useState<FileDetail[]>(
         initialData?.files || savedData?.files || [
-            { id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }
+            { id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '', isInternalTransfer: false }
         ]
     );
 
@@ -156,6 +156,42 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const [uploadingFiles, setUploadingFiles] = useState<{ [fileId: string]: boolean }>({});
     const [uploadErrors, setUploadErrors] = useState<{ [fileId: string]: string }>({});
     const [pendingUploads, setPendingUploads] = useState<{ fileId: string; file: File }[]>([]);
+
+    // State for the current user's client IP (used to auto-fill source IP for internal transfers)
+    const [myIp, setMyIp] = useState<string>('');
+    const [myIpLoading, setMyIpLoading] = useState(false);
+    const [myIpError, setMyIpError] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        const fetchMyIp = async () => {
+            try {
+                setMyIpLoading(true);
+                const result = await requestsAPI.getMyIp();
+                if (!cancelled) {
+                    setMyIp(result.ip);
+                    setMyIpError(false);
+                }
+            } catch (error) {
+                console.error('Error fetching client IP:', error);
+                if (!cancelled) setMyIpError(true);
+            } finally {
+                if (!cancelled) setMyIpLoading(false);
+            }
+        };
+        fetchMyIp();
+        return () => { cancelled = true; };
+    }, []);
+
+    // همگام‌سازی خودکار آدرس IP مبدا برای رکوردهای انتقال داخلی، به محض دریافت IP کاربر یا تغییر سامانه انتخاب‌شده
+    useEffect(() => {
+        setFiles(prev => prev.map(f => {
+            if (!f.isInternalTransfer) return f;
+            const validSourceIp = myIp && availableIps.includes(myIp) ? myIp : '';
+            return f.sourceIP === validSourceIp ? f : { ...f, sourceIP: validSourceIp };
+        }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [myIp, availableIps]);
 
     useEffect(() => {
         if (!isEditing && currentUser.role === Role.V_REQUESTER) {
@@ -240,6 +276,36 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
         const newFiles = [...files];
         newFiles[index] = { ...newFiles[index], [field]: value };
         setFiles(newFiles);
+    };
+
+    const handleFileTransferModeChange = (index: number, isInternal: boolean) => {
+        setFiles(prev => {
+            const next = [...prev];
+            const current = next[index];
+            if (isInternal) {
+                const validSourceIp = myIp && availableIps.includes(myIp) ? myIp : '';
+                next[index] = {
+                    ...current,
+                    isInternalTransfer: true,
+                    sourceIP: validSourceIp,
+                    destinationIP: '',
+                    sourceFilePath: '',
+                    destinationFilePath: '',
+                    fileFormat: '',
+                    fileName: '',
+                };
+            } else {
+                next[index] = {
+                    ...current,
+                    isInternalTransfer: false,
+                    sourceIP: '',
+                    destinationIP: '',
+                };
+            }
+            return next;
+        });
+        // پاک‌کردن آپلود در انتظار برای این رکورد هنگام تغییر حالت انتقال
+        setPendingUploads(prev => prev.filter(p => p.fileId !== files[index].id));
     };
 
     const assertRegisteredIp = (ip: string, label: string): boolean => {
@@ -343,7 +409,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
     const addFile = () => {
         setFiles([
             ...files,
-            { id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }
+            { id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '', isInternalTransfer: false }
         ]);
     };
 
@@ -516,20 +582,45 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                 if (!ensureSystemHasIps()) { setIsSubmitting(false); return; }
                 // Validation for File Transfer
                 for (const file of files) {
-                    if (!file.fileName || !file.fileContent || !file.sourceIP || !file.sourceFilePath || 
-                        !file.destinationIP || !file.destinationFilePath || !file.fileFormat || 
-                        !file.recipient || !file.fileFields) {
-                        showToast('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (فقط شماره نامه اختیاری است)', 'warning');
-                        setIsSubmitting(false);
-                        return;
-                    }
-                    if (!assertRegisteredIp(file.sourceIP, 'آدرس IP مبدا')) { setIsSubmitting(false); return; }
-                    // بررسی اجباری بودن آپلود فایل برای انتقال درون‌سامانه‌ای
-                    if (file.sourceIP && file.destinationIP && isDestinationInSameSystem(file.destinationIP)) {
-                        if (!pendingUploads.find(p => p.fileId === file.id)) {
-                            showToast('برای انتقال بین سرورهای یک سامانه، بارگذاری فایل الزامی است', 'warning');
+                    if (file.isInternalTransfer) {
+                        if (!file.sourceIP) {
+                            showToast('آدرس IP مبدا شما در لیست IP های مجاز این سامانه یافت نشد. امکان انتقال داخلی از این مبدا وجود ندارد.', 'warning');
                             setIsSubmitting(false);
                             return;
+                        }
+                        if (!file.destinationIP || !file.recipient || !file.fileContent || !file.fileFields) {
+                            showToast('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (فقط شماره نامه اختیاری است)', 'warning');
+                            setIsSubmitting(false);
+                            return;
+                        }
+                        if (!assertRegisteredIp(file.sourceIP, 'آدرس IP مبدا')) { setIsSubmitting(false); return; }
+                        if (!assertRegisteredIp(file.destinationIP, 'آدرس IP مقصد')) { setIsSubmitting(false); return; }
+                        if (file.sourceIP === file.destinationIP) {
+                            showToast('آدرس IP مبدا و مقصد نمی‌توانند یکسان باشند', 'warning');
+                            setIsSubmitting(false);
+                            return;
+                        }
+                        if (!pendingUploads.find(p => p.fileId === file.id)) {
+                            showToast('برای انتقال داخلی، بارگذاری فایل الزامی است', 'warning');
+                            setIsSubmitting(false);
+                            return;
+                        }
+                    } else {
+                        if (!file.fileName || !file.fileContent || !file.sourceIP || !file.sourceFilePath || 
+                            !file.destinationIP || !file.destinationFilePath || !file.fileFormat || 
+                            !file.recipient || !file.fileFields) {
+                            showToast('لطفاً تمام فیلدهای الزامی را برای همه رکوردها پر کنید. (فقط شماره نامه اختیاری است)', 'warning');
+                            setIsSubmitting(false);
+                            return;
+                        }
+                        if (!assertRegisteredIp(file.sourceIP, 'آدرس IP مبدا')) { setIsSubmitting(false); return; }
+                        // بررسی اجباری بودن آپلود فایل برای انتقال درون‌سامانه‌ای که به اشتباه به‌صورت عادی ثبت شده
+                        if (file.sourceIP && file.destinationIP && isDestinationInSameSystem(file.destinationIP)) {
+                            if (!pendingUploads.find(p => p.fileId === file.id)) {
+                                showToast('IP مقصد در همان سامانه انتخاب‌شده است. لطفاً از حالت «انتقال داخلی» استفاده کنید یا فایل را بارگذاری کنید.', 'warning');
+                                setIsSubmitting(false);
+                                return;
+                            }
                         }
                     }
                 }
@@ -718,7 +809,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
             
             // Reset form only if not editing
             if (!isEditing) {
-                setFiles([{ id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '' }]);
+                setFiles([{ id: `file-${Date.now()}`, fileName: '', fileContent: '', sourceIP: '', sourceFilePath: '', destinationIP: '', destinationFilePath: '', fileFormat: '', recipient: '', letterNumber: '', fileFields: '', isInternalTransfer: false }]);
                 setBackups([{ id: `backup-${Date.now()}`, serverIP: '', backupMethod: 'FULL', storagePath: '', schedule: '', retentionPeriod: '' }]);
                 setVdis([{ id: `vdi-${Date.now()}`, transferMediaType: '', fileOrFolderName: '', sourceAddress: '', destinationAddress: '', serverOrSystemName: '', portNumber: '' }]);
                 setTapes([{ id: `tape-${Date.now()}`, serverIP: '', fileName: '', filePath: '' }]);
@@ -880,8 +971,38 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                     )}
                                 </div>
                             </div>
+                            {/* انتخاب نوع انتقال - باید پیش از پر کردن سایر فیلدها مشخص شود */}
+                            {!isEditing && (
+                                <div className="mb-4">
+                                    <label className="font-semibold text-sm text-gray-700 block mb-1.5">
+                                        نوع انتقال فایل <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="inline-flex rounded-md border border-gray-300 overflow-hidden">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleFileTransferModeChange(index, false)}
+                                            className={`px-4 py-2 text-sm font-semibold transition-colors ${!file.isInternalTransfer ? 'bg-[#3498db] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                                        >
+                                            انتقال عادی (بین سامانه‌ها)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleFileTransferModeChange(index, true)}
+                                            className={`px-4 py-2 text-sm font-semibold transition-colors border-r border-gray-300 ${file.isInternalTransfer ? 'bg-[#3498db] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                                        >
+                                            انتقال داخلی (بین سرورهای یک سامانه)
+                                        </button>
+                                    </div>
+                                    {file.isInternalTransfer && (
+                                        <p className="text-xs text-gray-500 mt-1.5">
+                                            در انتقال داخلی، فایل مستقیماً بارگذاری می‌شود و نیازی به وارد کردن نام/مسیر/فرمت فایل نیست.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {/* نام فایل - تک ستونی */}
+                                {/* نام فایل - فقط برای انتقال عادی */}
+                                {!file.isInternalTransfer && (
                                 <div className="md:col-span-2">
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         نام فایل <span className="text-red-500">*</span>
@@ -895,33 +1016,63 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         aria-required="true"
                                     />
                                 </div>
+                                )}
                                 
                                 {/* آدرس IP مبدا */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         آدرس IP مبدا <span className="text-red-500">*</span>
                                     </label>
-                                    <ServerIpCombobox
-                                        value={file.sourceIP}
-                                        onChange={v => handleFileChange(index, 'sourceIP', v)}
-                                        options={availableIps}
-                                        disabled={ipFieldsDisabled}
-                                        placeholder="انتخاب IP مبدا"
-                                        required
-                                        className="focus:ring-[#3498db]"
-                                    />
-                                    {file.sourceIP && (
-                                        <div className="mt-2">
-                                            <IpWithSystemDisplay 
-                                                ip={file.sourceIP} 
-                                                showWarning={false}
-                                                compact={true}
+                                    {file.isInternalTransfer ? (
+                                        <>
+                                            {myIpLoading ? (
+                                                <div className="w-full p-2 border border-gray-300 rounded-md bg-gray-50 text-sm text-gray-500">
+                                                    در حال دریافت آدرس IP شما...
+                                                </div>
+                                            ) : file.sourceIP ? (
+                                                <input
+                                                    type="text"
+                                                    value={file.sourceIP}
+                                                    disabled
+                                                    readOnly
+                                                    className="w-full p-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700 font-mono"
+                                                />
+                                            ) : (
+                                                <div className="w-full p-2.5 border border-red-300 bg-red-50 rounded-md text-sm text-red-700">
+                                                    {myIpError
+                                                        ? 'دریافت آدرس IP شما با خطا مواجه شد. لطفاً صفحه را مجدداً بارگذاری کنید.'
+                                                        : !activeServerId
+                                                            ? 'ابتدا یک سامانه از لیست «انتخاب سامانه» انتخاب کنید.'
+                                                            : `آدرس IP شما (${myIp}) در لیست IP های مجاز این سامانه نیست. امکان انتقال داخلی از این مبدا وجود ندارد.`}
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <ServerIpCombobox
+                                                value={file.sourceIP}
+                                                onChange={v => handleFileChange(index, 'sourceIP', v)}
+                                                options={availableIps}
+                                                disabled={ipFieldsDisabled}
+                                                placeholder="انتخاب IP مبدا"
+                                                required
+                                                className="focus:ring-[#3498db]"
                                             />
-                                        </div>
+                                            {file.sourceIP && (
+                                                <div className="mt-2">
+                                                    <IpWithSystemDisplay 
+                                                        ip={file.sourceIP} 
+                                                        showWarning={false}
+                                                        compact={true}
+                                                    />
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                                 
-                                {/* مسیر فایل مبدا */}
+                                {/* مسیر فایل مبدا - فقط برای انتقال عادی */}
+                                {!file.isInternalTransfer && (
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         مسیر فایل مبدا <span className="text-red-500">*</span>
@@ -935,32 +1086,46 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                     />
                                 </div>
+                                )}
                                 
                                 {/* آدرس IP مقصد */}
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         آدرس IP مقصد <span className="text-red-500">*</span>
                                     </label>
-                                    <input 
-                                        type="text" 
-                                        value={file.destinationIP} 
-                                        onChange={e => handleFileChange(index, 'destinationIP', e.target.value)} 
-                                        placeholder="مثال: 192.168.1.200"
-                                        className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
-                                        required
-                                    />
+                                    {file.isInternalTransfer ? (
+                                        <ServerIpCombobox
+                                            value={file.destinationIP}
+                                            onChange={v => handleFileChange(index, 'destinationIP', v)}
+                                            options={availableIps.filter(ip => ip !== file.sourceIP)}
+                                            disabled={ipFieldsDisabled || !file.sourceIP}
+                                            placeholder="انتخاب IP مقصد"
+                                            required
+                                            className="focus:ring-[#3498db]"
+                                        />
+                                    ) : (
+                                        <input 
+                                            type="text" 
+                                            value={file.destinationIP} 
+                                            onChange={e => handleFileChange(index, 'destinationIP', e.target.value)} 
+                                            placeholder="مثال: 192.168.1.200"
+                                            className="w-full p-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-[#3498db]" 
+                                            required
+                                        />
+                                    )}
                                     {file.destinationIP && (
                                         <div className="mt-2">
                                             <IpWithSystemDisplay 
                                                 ip={file.destinationIP} 
-                                                showWarning={true}
+                                                showWarning={!file.isInternalTransfer}
                                                 compact={true}
                                             />
                                         </div>
                                     )}
                                 </div>
                                 
-                                {/* مسیر فایل مقصد */}
+                                {/* مسیر فایل مقصد - فقط برای انتقال عادی */}
+                                {!file.isInternalTransfer && (
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         مسیر فایل مقصد <span className="text-red-500">*</span>
@@ -974,8 +1139,10 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                     />
                                 </div>
+                                )}
                                 
-                                {/* فرمت فایل */}
+                                {/* فرمت فایل - فقط برای انتقال عادی */}
+                                {!file.isInternalTransfer && (
                                 <div>
                                     <label className="font-semibold text-sm text-gray-700 block mb-1">
                                         فرمت فایل <span className="text-red-500">*</span>
@@ -989,6 +1156,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                         required
                                     />
                                 </div>
+                                )}
                                 
                                 {/* شخص/سازمان گیرنده */}
                                 <div>
@@ -1064,7 +1232,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                             </div>
                                         </div>
                                     </div>
-                                ) : !isEditing && file.sourceIP && file.destinationIP && isDestinationInSameSystem(file.destinationIP) && !file.uploadedFile ? (
+                                ) : !isEditing && file.isInternalTransfer && file.sourceIP && !file.uploadedFile ? (
                                     <div className="md:col-span-2">
                                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                             <div className="flex items-center gap-2 text-blue-800 font-semibold mb-2">
@@ -1074,7 +1242,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                                 <span>بارگذاری فایل <span className="text-red-500">*</span></span>
                                             </div>
                                             <p className="text-sm text-blue-700 mb-3">
-                                                آدرس IP مبدا و مقصد در یک سامانه قرار دارند. بارگذاری فایل (تا سقف ۱ گیگابایت) الزامی است.
+                                                برای انتقال داخلی، بارگذاری فایل (تا سقف ۱ گیگابایت) الزامی است. نام و فرمت فایل به‌صورت خودکار از فایل انتخابی استخراج می‌شود.
                                             </p>
                                             <input
                                                 type="file"
@@ -1092,6 +1260,10 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                                             const filtered = prev.filter(p => p.fileId !== file.id);
                                                             return [...filtered, { fileId: file.id, file: selectedFile }];
                                                         });
+                                                        // استخراج خودکار نام و فرمت فایل از فایل انتخابی
+                                                        const dotIdx = selectedFile.name.lastIndexOf('.');
+                                                        const ext = dotIdx > 0 ? selectedFile.name.slice(dotIdx + 1).toUpperCase() : '';
+                                                        setFiles(prev => prev.map(f => f.id === file.id ? { ...f, fileName: selectedFile.name, fileFormat: ext } : f));
                                                         showToast(`فایل "${selectedFile.name}" انتخاب شد. پس از ارسال درخواست آپلود خواهد شد.`, 'success');
                                                     }
                                                 }}
@@ -1117,6 +1289,7 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                                             type="button"
                                                             onClick={() => {
                                                                 setPendingUploads(prev => prev.filter(p => p.fileId !== file.id));
+                                                                setFiles(prev => prev.map(f => f.id === file.id ? { ...f, fileName: '', fileFormat: '' } : f));
                                                             }}
                                                             className="text-red-500 hover:text-red-700"
                                                         >
@@ -1129,17 +1302,17 @@ const RequestForm: React.FC<RequestFormProps> = ({ currentUser, onSubmit, initia
                                             </div>
                                         </div>
                                     </div>
-                                ) : !isEditing && file.sourceIP && file.destinationIP && !isDestinationInSameSystem(file.destinationIP) ? (
+                                ) : !isEditing && !file.isInternalTransfer && file.sourceIP && file.destinationIP && isDestinationInSameSystem(file.destinationIP) ? (
                                     <div className="md:col-span-2">
                                         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                                             <div className="flex items-center gap-2 text-yellow-800 font-semibold mb-2">
                                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                 </svg>
-                                                <span>انتقال بین سامانه‌ها</span>
+                                                <span>این انتقال داخلی به نظر می‌رسد</span>
                                             </div>
                                             <p className="text-sm text-yellow-700">
-                                                IP مقصد در سامانه انتخاب شده ثبت نشده است. انتقال فایل باید توسط تمام افراد مرتبط به صورت دستی تایید شود.
+                                                IP مقصد در همان سامانه انتخاب‌شده ثبت شده است. برای استفاده از بارگذاری مستقیم فایل، گزینه «انتقال داخلی» را در بالای این رکورد انتخاب کنید.
                                             </p>
                                         </div>
                                     </div>
